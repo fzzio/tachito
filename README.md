@@ -6,6 +6,7 @@ Libera espacio en tu teléfono Android deslizando, al estilo Tinder: **izquierda
 
 <p>
   <img src="docs/capturas/menu.png" width="240" alt="Menú de filtros">
+  <img src="docs/capturas/menu-oscuro.png" width="240" alt="Menú en modo oscuro">
   <img src="docs/capturas/limpieza.png" width="240" alt="Modo limpieza">
 </p>
 

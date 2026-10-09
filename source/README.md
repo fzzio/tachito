@@ -6,14 +6,20 @@ App nativa Android para revisar fotos, videos y archivos uno por uno y enviarlos
 
 - **Dos modos**: *Fotos y videos* o *Archivos* (audio, documentos, comprimidos, APKs, otros).
 - **Filtros antes de empezar**:
-  - **Tipo**: según el modo.
+  - **Tipo**.
   - **Orden**: más pesados, más antiguos, más recientes o aleatorio.
-  - **Fuente**: Galería (cámara), Capturas, WhatsApp, Google Fotos, Telegram, Descargas o cualquier carpeta.
+  - **De dónde**: Galería (cámara), Capturas, WhatsApp, Google Fotos, Telegram, Descargas o cualquier carpeta. Se pueden marcar varias y se suman.
+  - **Carpetas**: lista plegable con buscador.
+- **Elegir otra carpeta…**: abre el explorador de carpetas de Android. Sirve para carpetas que la galería no muestra (con `.nomedia`, como "WhatsApp Images/Sent" o cachés).
 - **Modo limpieza**: izquierda o 🗑 borra, derecha o ✓ conserva, ↶ deshace.
   - Los videos se reproducen sin sonido, con un botón para activarlo.
   - Los audios tienen botón *Escuchar* y los documentos, botón *Abrir*.
-- **Papelera del sistema**: nada se borra al deslizar. Lo marcado se envía junto con el botón rojo, y se puede recuperar durante 30 días.
+- **Papelera**: nada se borra al deslizar. Lo marcado se envía junto con el botón rojo.
+  - Lo de la galería va a la papelera del sistema.
+  - Lo de "otra carpeta" va a la papelera propia de Tachito (`.tachito-papelera`).
+  - Las dos se ven juntas en la pantalla **Papelera**, con *Restaurar* en cada elemento y *Vaciar papelera* para borrar definitivamente. Lo que no se vacía se borra solo a los 30 días.
 - **Contador** de espacio liberado en la sesión y en total.
+- **Diseño**: estilo shadcn/ui (bordes finos, tarjetas, controles segmentados) con la paleta del logo. Tiene modo claro y oscuro.
 
 ## Requisitos
 
@@ -79,10 +85,15 @@ La firma en CI usa estos secretos del repo:
 
 ```
 app/src/main/java/app/tachito/
-├── MainActivity.kt   # toda la UI en Compose: permisos, menú de filtros, tarjetas con swipe, reproductores
+├── MainActivity.kt   # navegación, permisos, pantalla de swipe, tarjetas y reproductores
+├── Setup.kt          # pantalla principal: modo, tipo, orden, fuentes, carpetas, "elegir otra carpeta"
+├── TrashScreen.kt    # pantalla Papelera: restaurar y vaciar (sistema + propia)
+├── Trash.kt          # papelera propia (TrashBin), escaneo de carpetas, papelera del sistema
 ├── Media.kt          # modelo, consulta a MediaStore, tipos, fuentes, filtros y orden
-└── Icons.kt          # 8 iconos Material como paths (evita la librería de iconos extendida)
-app/src/test/.../SelectTest.kt   # tests de filtros, fuentes y tipos de archivo
+├── Theme.kt          # paleta del logo y componentes base (Section, Segmented, PillRow, SelectRow)
+└── Icons.kt          # iconos Material como paths (evita la librería de iconos extendida)
+app/src/test/.../SelectTest.kt    # filtros, fuentes (también varias a la vez) y tipos de archivo
+app/src/test/.../TrashBinTest.kt  # mover, restaurar sin pisar, vencimiento a 30 días, rutas de volúmenes
 ```
 
 Sin librerías aparte de Compose, Material 3 y Activity:
