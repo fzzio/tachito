@@ -15,7 +15,7 @@ Guía para compartir con familia y amigos.
 1. Abre Tachito y dale permiso para ver fotos y videos.
 2. Elige qué revisar:
    - **Tipo**: fotos, videos o ambos.
-   - **Orden**: "Más pesados" libera espacio más rápido.
+   - **Orden**: por defecto "Más antiguos". "Más pesados" libera espacio más rápido.
    - **Fuente**: WhatsApp, cámara, capturas, etc.
 3. Toca **Empezar**.
 4. Revisa cada foto:

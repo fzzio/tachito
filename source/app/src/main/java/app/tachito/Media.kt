@@ -66,7 +66,7 @@ enum class Kind(val label: String, val files: Boolean?) {
 }
 
 enum class Order(val label: String) {
-    BIGGEST("Más pesados"), OLDEST("Más antiguos"), NEWEST("Más recientes"), RANDOM("Aleatorio")
+    OLDEST("Más antiguos"), NEWEST("Más recientes"), BIGGEST("Más pesados"), RANDOM("Aleatorio")
 }
 
 enum class Preset(val label: String, val test: (Media) -> Boolean) {
@@ -89,7 +89,7 @@ data class Filter(
     /** Vacío = todas las fuentes. Con varias, se suman (unión). */
     val sources: Set<Source> = emptySet(),
     val kind: Kind = Kind.ALL,
-    val order: Order = Order.BIGGEST,
+    val order: Order = Order.OLDEST,
 )
 
 fun Media.matches(kind: Kind) = kind == Kind.ALL || this.kind == kind

@@ -452,13 +452,13 @@ fun MediaCard(m: Media, active: Boolean, muted: Boolean, onToggleMute: () -> Uni
         InfoOverlay(m, ctx.fmt(m.size), Modifier.align(Alignment.BottomStart))
         if (m.isImage && active) {
             var zoom by remember(m.id) { mutableStateOf(false) }
-            FilledTonalIconButton(onClick = { zoom = true }, modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp).size(52.dp)) {
+            FilledTonalIconButton(onClick = { zoom = true }, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp).size(52.dp)) {
                 Icon(AppIcons.ZoomIn, "Ver con zoom")
             }
             if (zoom) ZoomViewer(m.name, 1, { zoom = false }) { loadBitmap(ctx, m, 4096)?.asImageBitmap() }
         }
         if (m.isVideo && active) {
-            FilledTonalIconButton(onClick = onToggleMute, modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp).size(52.dp)) {
+            FilledTonalIconButton(onClick = onToggleMute, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp).size(52.dp)) {
                 Icon(if (muted) AppIcons.VolumeOff else AppIcons.VolumeUp, if (muted) "Activar sonido" else "Silenciar")
             }
         }
