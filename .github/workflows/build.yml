@@ -1,0 +1,64 @@
+name: Build
+
+# PRs: solo tests. Merge a main: tests + APK firmado + GitHub Release.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: source
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+          cache-dependency-path: source/**/*.gradle.kts
+
+      - name: Tests
+        run: ./gradlew testDebugUnitTest
+
+      - name: Preparar firma
+        if: github.event_name == 'push'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          test -n "$KEYSTORE_BASE64" || { echo "::error::Falta el secreto KEYSTORE_BASE64"; exit 1; }
+          echo "$KEYSTORE_BASE64" | base64 -d > tachito.jks
+          printf 'storeFile=tachito.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+            "$KEYSTORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD" > keystore.properties
+
+      - name: APK firmado
+        if: github.event_name == 'push'
+        run: ./gradlew assembleRelease -PbuildNumber=${{ github.run_number }}
+
+      - name: Publicar release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="$(grep -oP 'baseVersion = "\K[^"]+' app/build.gradle.kts).${{ github.run_number }}"
+          APK="Tachito-$VERSION.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$APK"
+          gh release create "v$VERSION" "$APK" \
+            --target "$GITHUB_SHA" \
+            --title "Tachito $VERSION" \
+            --notes "Descarga \`$APK\` en el teléfono y ábrelo para instalar o actualizar. [Guía](https://github.com/${{ github.repository }}/blob/main/docs/instalacion.md)" \
+            --generate-notes

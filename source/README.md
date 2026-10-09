@@ -60,9 +60,20 @@ keytool -genkeypair -keystore tachito.jks -alias desliza -keyalg RSA -keysize 20
 
 ## Publicar una versión nueva
 
-1. Sube `versionCode` y `versionName` en `app/build.gradle.kts`.
-2. Ejecuta `./gradlew assembleRelease`.
-3. Comparte `app/build/outputs/apk/release/app-release.apk`. Se instala encima de la anterior.
+Automático con GitHub Actions ([`.github/workflows/build.yml`](../.github/workflows/build.yml)):
+
+- **Pull request**: corre los tests.
+- **Merge a `main`**:
+  1. Corre los tests.
+  2. Compila el APK firmado.
+  3. Publica un [Release](https://github.com/fzzio/tachito/releases) con el APK adjunto (`Tachito-1.1.<n>.apk`).
+
+El número de build `<n>` sale de la corrida de CI. Así `versionCode` siempre sube y cada APK se instala encima del anterior. Para un cambio grande, sube `baseVersion` en `app/build.gradle.kts` (por ejemplo, `"1.2"`).
+
+La firma en CI usa estos secretos del repo:
+
+- `KEYSTORE_BASE64`: el `.jks` en base64.
+- `KEYSTORE_PASSWORD`, `KEY_ALIAS` y `KEY_PASSWORD`.
 
 ## Código
 

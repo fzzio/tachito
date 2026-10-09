@@ -74,14 +74,14 @@ enum class Preset(val label: String, val test: (Media) -> Boolean) {
 }
 
 sealed interface Source {
-    data object All : Source
     data class Group(val preset: Preset) : Source
     data class Album(val name: String) : Source
 }
 
 data class Filter(
     val files: Boolean = false,
-    val source: Source = Source.All,
+    /** Vacío = todas las fuentes. Con varias, se suman (unión). */
+    val sources: Set<Source> = emptySet(),
     val kind: Kind = Kind.ALL,
     val order: Order = Order.BIGGEST,
 )
@@ -89,13 +89,12 @@ data class Filter(
 fun Media.matches(kind: Kind) = kind == Kind.ALL || this.kind == kind
 
 fun Media.matches(source: Source) = when (source) {
-    Source.All -> true
     is Source.Group -> source.preset.test(this)
     is Source.Album -> album == source.name
 }
 
 fun List<Media>.select(f: Filter): List<Media> {
-    val l = filter { it.matches(f.kind) && it.matches(f.source) }
+    val l = filter { it.matches(f.kind) && (f.sources.isEmpty() || f.sources.any(it::matches)) }
     return when (f.order) {
         Order.BIGGEST -> l.sortedByDescending { it.size }
         Order.OLDEST -> l.sortedBy { it.date }
