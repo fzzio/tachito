@@ -6,6 +6,9 @@ plugins {
 }
 
 // Firma de release: keystore.properties (no versionado) apunta al .jks
+// Versión base; CI le agrega el número de build (1.1 -> 1.1.7). Subirla a mano para cambios grandes.
+val baseVersion = "1.1"
+
 val keystoreProps = Properties().apply {
     rootProject.file("keystore.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
 }
@@ -18,8 +21,10 @@ android {
         applicationId = "app.tachito"
         minSdk = 30
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.1"
+        // CI pasa -PbuildNumber=<n> en cada merge a main: versionCode siempre crece y el APK se instala encima.
+        val buildNumber = (findProperty("buildNumber") as String?)?.toInt()
+        versionCode = if (buildNumber != null) 100 + buildNumber else 2
+        versionName = baseVersion + (buildNumber?.let { ".$it" } ?: "")
     }
 
     signingConfigs {
