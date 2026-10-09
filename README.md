@@ -4,6 +4,8 @@
 
 Libera espacio en tu teléfono Android deslizando, al estilo Tinder: **izquierda borra, derecha conserva**. Sin anuncios, sin internet, sin cuentas.
 
+**[⬇ Descargar Tachito (última versión)](https://github.com/fzzio/tachito/releases/latest/download/Tachito.apk)** · Android 11 o superior · [Cómo instalar](docs/instalacion.md)
+
 <p>
   <img src="docs/capturas/menu.png" width="240" alt="Menú de filtros">
   <img src="docs/capturas/menu-oscuro.png" width="240" alt="Menú en modo oscuro">

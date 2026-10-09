@@ -13,11 +13,14 @@ App nativa Android para revisar fotos, videos y archivos uno por uno y enviarlos
 - **Elegir otra carpeta…**: abre el explorador de carpetas de Android. Sirve para carpetas que la galería no muestra (con `.nomedia`, como "WhatsApp Images/Sent" o cachés).
 - **Modo limpieza**: izquierda o 🗑 borra, derecha o ✓ conserva, ↶ deshace.
   - Los videos se reproducen sin sonido, con un botón para activarlo.
-  - Los audios tienen botón *Escuchar* y los documentos, botón *Abrir*.
+  - Las fotos tienen botón de zoom: visor a pantalla completa con pellizcar, doble toque o botones +/−.
+  - Los PDF muestran la primera página y tienen visor propio (páginas y zoom) con `PdfRenderer`.
+  - Los audios tienen botón *Escuchar* y el resto de documentos, botón *Abrir*.
 - **Papelera**: nada se borra al deslizar. Lo marcado se envía junto con el botón rojo.
   - Lo de la galería va a la papelera del sistema.
   - Lo de "otra carpeta" va a la papelera propia de Tachito (`.tachito-papelera`).
   - Las dos se ven juntas en la pantalla **Papelera**, con *Restaurar* en cada elemento y *Vaciar papelera* para borrar definitivamente. Lo que no se vacía se borra solo a los 30 días.
+- **Acerca de** (icono ⓘ arriba): versión y contacto del autor.
 - **Contador** de espacio liberado en la sesión y en total.
 - **Diseño**: estilo shadcn/ui (bordes finos, tarjetas, controles segmentados) con la paleta del logo. Tiene modo claro y oscuro.
 
@@ -72,7 +75,8 @@ Automático con GitHub Actions ([`.github/workflows/build.yml`](../.github/workf
 - **Merge a `main`**:
   1. Corre los tests.
   2. Compila el APK firmado.
-  3. Publica un [Release](https://github.com/fzzio/tachito/releases) con el APK adjunto (`Tachito-1.1.<n>.apk`).
+  3. Publica un [Release](https://github.com/fzzio/tachito/releases) `v1.1.<n>` con el APK adjunto como `Tachito.apk` y borra los releases anteriores (solo queda el último).
+  4. El link fijo [releases/latest/download/Tachito.apk](https://github.com/fzzio/tachito/releases/latest/download/Tachito.apk) siempre baja la última versión.
 
 El número de build `<n>` sale de la corrida de CI. Así `versionCode` siempre sube y cada APK se instala encima del anterior. Para un cambio grande, sube `baseVersion` en `app/build.gradle.kts` (por ejemplo, `"1.2"`).
 
