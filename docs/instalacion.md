@@ -22,6 +22,7 @@ Guía para compartir con familia y amigos.
    - Desliza a la **izquierda** (o 🗑) para borrar.
    - Desliza a la **derecha** (o ✓) para conservar.
    - **↶** deshace la última decisión.
+   - En fotos, la lupa abre la foto en grande para hacer zoom (pellizca, toca dos veces o usa + y −).
 5. Cuando termines, toca el botón rojo **Enviar a la papelera** y confirma.
 
 Lo borrado queda **30 días** en la papelera. Desde el icono 🗑 de arriba puedes ver la papelera, restaurar cosas o tocar **Vaciar papelera** para liberar el espacio de inmediato.
@@ -31,6 +32,8 @@ Lo borrado queda **30 días** en la papelera. Desde el icono 🗑 de arriba pued
 ## Modo Archivos
 
 En la pestaña **Archivos** puedes revisar audios (incluidas las notas de voz de WhatsApp), PDFs, documentos, comprimidos e instaladores.
+
+Los audios se pueden escuchar y los PDF se ven dentro de la app con el botón **Ver** (con páginas y zoom).
 
 La primera vez, Android pide activar **"Acceso a todos los archivos"** para Tachito. El botón de la app te lleva directo a esa opción.
 

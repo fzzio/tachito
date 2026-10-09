@@ -1,5 +1,7 @@
 package app.tachito
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -63,7 +65,15 @@ fun SetupScreen(
                     fontSize = 14.sp,
                 )
             }
-            TrashButton(trash.first, onOpenTrash)
+            var about by remember { mutableStateOf(false) }
+            HeaderButton({ about = true }) { Icon(AppIcons.Info, "Acerca de") }
+            Spacer(Modifier.width(8.dp))
+            HeaderButton(onOpenTrash) {
+                BadgedBox(badge = { if (trash.first > 0) Badge(containerColor = RED) { Text(if (trash.first > 99) "99+" else "${trash.first}") } }) {
+                    Icon(Icons.Default.Delete, "Papelera")
+                }
+            }
+            if (about) AboutDialog { about = false }
         }
 
         Segmented(
@@ -114,15 +124,41 @@ fun SetupScreen(
 }
 
 @Composable
-private fun TrashButton(count: Int, onClick: () -> Unit) {
+private fun HeaderButton(onClick: () -> Unit, content: @Composable () -> Unit) {
     Box(
         Modifier.size(48.dp).clip(RADIUS).border(border, RADIUS).clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
-    ) {
-        BadgedBox(badge = { if (count > 0) Badge(containerColor = RED) { Text(if (count > 99) "99+" else "$count") } }) {
-            Icon(Icons.Default.Delete, "Papelera")
-        }
-    }
+    ) { content() }
+}
+
+private const val AUTHOR = "Fabricio Orrala"
+private const val EMAIL = "fabricio.orrala@gmail.com"
+
+@Composable
+private fun AboutDialog(onClose: () -> Unit) {
+    val ctx = LocalContext.current
+    val version = remember { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }
+    AlertDialog(
+        onDismissRequest = onClose,
+        icon = { Logo(56) },
+        title = { Text("Tachito $version") },
+        text = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                Text("Libera espacio deslizando: ← borra, conserva →. Sin anuncios y sin internet.", textAlign = TextAlign.Center)
+                Spacer(Modifier.height(16.dp))
+                Text("Hecho por", color = muted, fontSize = 13.sp)
+                Text(AUTHOR, fontWeight = FontWeight.SemiBold)
+                Text(
+                    EMAIL,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.clickable {
+                        runCatching { ctx.startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:$EMAIL")).putExtra(Intent.EXTRA_SUBJECT, "Tachito")) }
+                    }.padding(4.dp),
+                )
+            }
+        },
+        confirmButton = { TextButton(onClose) { Text("Cerrar") } },
+    )
 }
 
 @Composable

@@ -13,11 +13,14 @@ App nativa Android para revisar fotos, videos y archivos uno por uno y enviarlos
 - **Elegir otra carpeta…**: abre el explorador de carpetas de Android. Sirve para carpetas que la galería no muestra (con `.nomedia`, como "WhatsApp Images/Sent" o cachés).
 - **Modo limpieza**: izquierda o 🗑 borra, derecha o ✓ conserva, ↶ deshace.
   - Los videos se reproducen sin sonido, con un botón para activarlo.
-  - Los audios tienen botón *Escuchar* y los documentos, botón *Abrir*.
+  - Las fotos tienen botón de zoom: visor a pantalla completa con pellizcar, doble toque o botones +/−.
+  - Los PDF muestran la primera página y tienen visor propio (páginas y zoom) con `PdfRenderer`.
+  - Los audios tienen botón *Escuchar* y el resto de documentos, botón *Abrir*.
 - **Papelera**: nada se borra al deslizar. Lo marcado se envía junto con el botón rojo.
   - Lo de la galería va a la papelera del sistema.
   - Lo de "otra carpeta" va a la papelera propia de Tachito (`.tachito-papelera`).
   - Las dos se ven juntas en la pantalla **Papelera**, con *Restaurar* en cada elemento y *Vaciar papelera* para borrar definitivamente. Lo que no se vacía se borra solo a los 30 días.
+- **Acerca de** (icono ⓘ arriba): versión y contacto del autor.
 - **Contador** de espacio liberado en la sesión y en total.
 - **Diseño**: estilo shadcn/ui (bordes finos, tarjetas, controles segmentados) con la paleta del logo. Tiene modo claro y oscuro.
 

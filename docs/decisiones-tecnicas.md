@@ -10,6 +10,7 @@ Una alternativa propia, liviana y sin anuncios a las apps de "swipe para borrar 
 |---|---|
 | Kotlin + Jetpack Compose nativo | El APK pesa ~2 MB y tiene acceso directo a MediaStore. No necesita un puente como React Native. |
 | Sin librerías de imágenes ni video | `ImageDecoder` (reduce la foto a ~1600 px) y `MediaPlayer` + `TextureView` cubren el caso. El `TextureView` permite rotar la tarjeta mientras el video se reproduce, cosa que `SurfaceView` no hace. |
+| Visor de PDF con `PdfRenderer` | Viene en Android: no suma peso. Renderiza una página a la vez como imagen, con el mismo visor de zoom que las fotos. No permite buscar ni copiar texto. Si el PDF tiene contraseña o está dañado, la tarjeta muestra *Abrir* (otra app) en su lugar. |
 | Iconos como paths propios | `material-icons-extended` es enorme y solo se usan unos pocos iconos. |
 | `minSdk 30` (Android 11) | Es la versión que trae la papelera del sistema (`createTrashRequest`) y la confirmación por lote. |
 | Estilo shadcn/ui con la paleta del logo | Grises lavanda, bordes de 1 px y tarjetas; morado para lo principal, rojo y verde solo para borrar y conservar. Modo claro y oscuro. |

@@ -6,11 +6,9 @@ import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.media.ThumbnailUtils
 import android.provider.DocumentsContract
 import androidx.core.content.FileProvider
 import java.io.File
-import android.graphics.ImageDecoder
 import android.graphics.SurfaceTexture
 import android.media.MediaPlayer
 import android.net.Uri
@@ -21,7 +19,6 @@ import android.provider.MediaStore
 import android.provider.Settings
 import android.text.format.DateUtils
 import android.text.format.Formatter
-import android.util.Size
 import android.view.Surface
 import android.view.TextureView
 import android.widget.Toast
@@ -452,6 +449,13 @@ fun MediaCard(m: Media, active: Boolean, muted: Boolean, onToggleMute: () -> Uni
         Thumbnail(m, Modifier.fillMaxSize())
         if (m.isVideo && active) VideoPlayer(m.uri, muted)
         InfoOverlay(m, ctx.fmt(m.size), Modifier.align(Alignment.BottomStart))
+        if (m.isImage && active) {
+            var zoom by remember(m.id) { mutableStateOf(false) }
+            FilledTonalIconButton(onClick = { zoom = true }, modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp).size(52.dp)) {
+                Icon(AppIcons.ZoomIn, "Ver con zoom")
+            }
+            if (zoom) ZoomViewer(m.name, 1, { zoom = false }) { loadBitmap(ctx, m, 4096)?.asImageBitmap() }
+        }
         if (m.isVideo && active) {
             FilledTonalIconButton(onClick = onToggleMute, modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp).size(52.dp)) {
                 Icon(if (muted) AppIcons.VolumeOff else AppIcons.VolumeUp, if (muted) "Activar sonido" else "Silenciar")
@@ -468,12 +472,19 @@ private fun FileCard(m: Media, active: Boolean, modifier: Modifier = Modifier) {
         Kind.DOCS -> AppIcons.Doc
         else -> AppIcons.File
     }
+    val pdf = remember(m.id) { if (m.mime == "application/pdf") Pdf.open(ctx, m) else null }
+    DisposableEffect(pdf) { onDispose { pdf?.close() } }
+    val preview by produceState<ImageBitmap?>(null, pdf) { value = withContext(Dispatchers.IO) { pdf?.render(0, 1000) } }
+    var viewing by remember(m.id) { mutableStateOf(false) }
+    if (viewing && pdf != null) ZoomViewer(m.name, pdf.pages, { viewing = false }) { pdf.render(it, 2400) }
+
     Box(modifier.fillMaxSize().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) {
         Column(
             Modifier.align(Alignment.Center).padding(24.dp).padding(bottom = 80.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Icon(icon, null, Modifier.size(120.dp), tint = MaterialTheme.colorScheme.primary)
+            preview?.let { Image(it, null, Modifier.heightIn(max = 300.dp).clip(RoundedCornerShape(8.dp))) }
+                ?: Icon(icon, null, Modifier.size(120.dp), tint = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.height(16.dp))
             Text(
                 m.name,
@@ -484,9 +495,14 @@ private fun FileCard(m: Media, active: Boolean, modifier: Modifier = Modifier) {
             )
             Text(m.kind.label, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(24.dp))
-            if (active) when (m.kind) {
-                Kind.AUDIO -> AudioButton(m.uri)
-                Kind.APKS -> {}
+            if (active) when {
+                pdf != null -> FilledTonalButton(onClick = { viewing = true }) {
+                    Icon(AppIcons.ZoomIn, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Ver" + if (pdf.pages > 1) " · ${pdf.pages} págs." else "")
+                }
+                m.kind == Kind.AUDIO -> AudioButton(m.uri)
+                m.kind == Kind.APKS -> {}
                 else -> FilledTonalButton(onClick = {
                     runCatching {
                         ctx.startActivity(
@@ -538,24 +554,7 @@ private fun AudioButton(uri: Uri) {
 fun Thumbnail(m: Media, modifier: Modifier, maxSide: Int = 1600, crop: Boolean = false) {
     val ctx = LocalContext.current
     val bitmap by produceState<ImageBitmap?>(null, m.id) {
-        value = withContext(Dispatchers.IO) {
-            runCatching {
-                val file = m.file?.let(::File)
-                val size = Size(maxSide * 9 / 16, maxSide)
-                when {
-                    m.isVideo && file != null -> ThumbnailUtils.createVideoThumbnail(file, size, null)
-                    m.isVideo -> ctx.contentResolver.loadThumbnail(m.uri, size, null)
-                    else -> ImageDecoder.decodeBitmap(
-                        if (file != null) ImageDecoder.createSource(file) else ImageDecoder.createSource(ctx.contentResolver, m.uri)
-                    ) { decoder, info, _ ->
-                        // Reduce al tamaño necesario: evita cargar fotos de 50MP en memoria
-                        var sample = 1
-                        while (maxOf(info.size.width, info.size.height) / (sample * 2) >= maxSide) sample *= 2
-                        decoder.setTargetSampleSize(sample)
-                    }
-                }
-            }.getOrNull()?.asImageBitmap()
-        }
+        value = withContext(Dispatchers.IO) { loadBitmap(ctx, m, maxSide)?.asImageBitmap() }
     }
     Box(modifier) {
         bitmap?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = if (crop) ContentScale.Crop else ContentScale.Fit) }
