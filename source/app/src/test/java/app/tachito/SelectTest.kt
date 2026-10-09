@@ -26,13 +26,16 @@ class SelectTest {
     @Test
     fun galleryFiltersAndOrders() {
         assertEquals(listOf(2L, 4L, 3L, 1L, 6L, 5L), ids(Filter()))
-        assertEquals(listOf(2L, 3L), ids(Filter(source = group(Preset.WHATSAPP))))
-        assertEquals(listOf(3L), ids(Filter(source = group(Preset.WHATSAPP), kind = Kind.PHOTOS)))
-        assertEquals(listOf(1L, 4L), ids(Filter(source = group(Preset.CAMERA), order = Order.OLDEST)))
-        assertEquals(listOf(5L), ids(Filter(source = group(Preset.GOOGLE_PHOTOS))))
-        assertEquals(listOf(6L), ids(Filter(source = group(Preset.SCREENSHOTS))))
-        assertEquals(listOf(1L, 4L), ids(Filter(source = Source.Album("Camera"), order = Order.OLDEST)))
+        assertEquals(listOf(2L, 3L), ids(Filter(sources = setOf(group(Preset.WHATSAPP)))))
+        assertEquals(listOf(3L), ids(Filter(sources = setOf(group(Preset.WHATSAPP)), kind = Kind.PHOTOS)))
+        assertEquals(listOf(1L, 4L), ids(Filter(sources = setOf(group(Preset.CAMERA)), order = Order.OLDEST)))
+        assertEquals(listOf(5L), ids(Filter(sources = setOf(group(Preset.GOOGLE_PHOTOS)))))
+        assertEquals(listOf(6L), ids(Filter(sources = setOf(group(Preset.SCREENSHOTS)))))
+        assertEquals(listOf(1L, 4L), ids(Filter(sources = setOf(Source.Album("Camera")), order = Order.OLDEST)))
         assertEquals(listOf(4L, 2L), ids(Filter(kind = Kind.VIDEOS, order = Order.NEWEST)))
+        // varias fuentes: unión, sin duplicar lo que coincide con ambas
+        assertEquals(listOf(2L, 4L, 3L, 1L, 6L), ids(Filter(sources = setOf(group(Preset.WHATSAPP), group(Preset.CAMERA), group(Preset.SCREENSHOTS)))))
+        assertEquals(listOf(4L, 1L), ids(Filter(sources = setOf(group(Preset.CAMERA), Source.Album("Camera")))))
         assertEquals(all.map { it.id }.toSet(), ids(Filter(order = Order.RANDOM)).toSet())
     }
 
@@ -40,7 +43,7 @@ class SelectTest {
     fun fileKinds() {
         assertEquals(listOf(Kind.AUDIO, Kind.DOCS, Kind.DOCS, Kind.ARCHIVES, Kind.APKS), files.map { it.kind })
         assertEquals(listOf(11L, 12L), ids(Filter(files = true, kind = Kind.DOCS), files))
-        assertEquals(listOf(10L), ids(Filter(files = true, source = group(Preset.WHATSAPP)), files))
-        assertEquals(listOf(11L, 13L, 14L, 12L), ids(Filter(files = true, source = group(Preset.DOWNLOADS)), files))
+        assertEquals(listOf(10L), ids(Filter(files = true, sources = setOf(group(Preset.WHATSAPP))), files))
+        assertEquals(listOf(11L, 13L, 14L, 12L), ids(Filter(files = true, sources = setOf(group(Preset.DOWNLOADS))), files))
     }
 }

@@ -256,15 +256,15 @@ private fun SetupOptions(all: List<Media>, filter: Filter, onFilter: (Filter) ->
                     Order.entries.forEach { FilterChip(filter.order == it, { onFilter(filter.copy(order = it)) }, { Text(it.label) }) }
                 }
             }
-            item { SectionTitle("Fuente") }
+            item { SectionTitle("Fuente (puedes marcar varias)") }
             item {
-                SourceRow("Todo", byKind.size, byKind.sumOf { it.size }, filter.source == Source.All) {
-                    onFilter(filter.copy(source = Source.All))
+                SourceRow("Todo", byKind.size, byKind.sumOf { it.size }, filter.sources.isEmpty()) {
+                    onFilter(filter.copy(sources = emptySet()))
                 }
             }
             items(presets, key = { it.first.name }) { (p, l) ->
                 val source = Source.Group(p)
-                SourceRow(p.label, l.size, l.sumOf { it.size }, filter.source == source) { onFilter(filter.copy(source = source)) }
+                SourceRow(p.label, l.size, l.sumOf { it.size }, source in filter.sources) { onFilter(filter.toggle(source)) }
             }
             if (presets.any { it.first == Preset.GOOGLE_PHOTOS }) item {
                 Text(
@@ -277,7 +277,7 @@ private fun SetupOptions(all: List<Media>, filter: Filter, onFilter: (Filter) ->
             item { SectionTitle("Carpetas") }
             items(albums, key = { "album:" + it.first }) { (name, count, bytes) ->
                 val source = Source.Album(name)
-                SourceRow(name, count, bytes, filter.source == source) { onFilter(filter.copy(source = source)) }
+                SourceRow(name, count, bytes, source in filter.sources) { onFilter(filter.toggle(source)) }
             }
         }
         Button(
@@ -289,6 +289,8 @@ private fun SetupOptions(all: List<Media>, filter: Filter, onFilter: (Filter) ->
         }
     }
 }
+
+private fun Filter.toggle(s: Source) = copy(sources = if (s in sources) sources - s else sources + s)
 
 @Composable
 private fun SectionTitle(text: String) {
@@ -302,7 +304,7 @@ private fun SourceRow(name: String, count: Int, bytes: Long, selected: Boolean, 
         Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        RadioButton(selected, onClick)
+        Checkbox(selected, { onClick() })
         Text(name, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text("$count · ${ctx.fmt(bytes)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.width(8.dp))
@@ -432,8 +434,9 @@ fun SwipeScreen(items: List<Media>, onExit: () -> Unit) {
                             },
                     ) {
                         AnyCard(current, active = true, muted = muted, onToggleMute = { muted = !muted })
-                        Stamp("BORRAR", RED, (-progress).coerceIn(0f, 1f), Modifier.align(Alignment.TopEnd))
-                        Stamp("CONSERVAR", GREEN, progress.coerceIn(0f, 1f), Modifier.align(Alignment.TopStart))
+                        // Sello centrado con icono y tinte: en los costados se cortaba o confundía el lado
+                        Stamp(Icons.Default.Delete, "BORRAR", RED, (-progress).coerceIn(0f, 1f), Modifier.align(Alignment.TopCenter))
+                        Stamp(Icons.Default.Check, "CONSERVAR", GREEN, progress.coerceIn(0f, 1f), Modifier.align(Alignment.TopCenter))
                     }
                 }
             }
@@ -479,19 +482,21 @@ fun SwipeScreen(items: List<Media>, onExit: () -> Unit) {
 }
 
 @Composable
-private fun Stamp(text: String, color: Color, alpha: Float, modifier: Modifier) {
+private fun Stamp(icon: ImageVector, text: String, color: Color, alpha: Float, modifier: Modifier) {
     if (alpha <= 0f) return
-    Text(
-        text,
-        color = color,
-        fontSize = 28.sp,
-        fontWeight = FontWeight.Black,
-        modifier = modifier
-            .padding(24.dp)
+    Box(Modifier.fillMaxSize().clip(RoundedCornerShape(20.dp)).background(color.copy(alpha = 0.25f * alpha)))
+    Row(
+        modifier
+            .padding(20.dp)
             .graphicsLayer { this.alpha = alpha }
-            .background(Color.White.copy(alpha = 0.85f), RoundedCornerShape(8.dp))
+            .background(Color.White.copy(alpha = 0.9f), RoundedCornerShape(8.dp))
             .padding(horizontal = 12.dp, vertical = 4.dp),
-    )
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, Modifier.size(28.dp), tint = color)
+        Spacer(Modifier.width(6.dp))
+        Text(text, color = color, fontSize = 26.sp, fontWeight = FontWeight.Black)
+    }
 }
 
 @Composable
