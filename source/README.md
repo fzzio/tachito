@@ -19,7 +19,7 @@ App nativa Android para revisar fotos, videos y archivos uno por uno y enviarlos
 - **Papelera**: nada se borra al deslizar. Lo marcado se envía junto con el botón rojo.
   - Lo de la galería va a la papelera del sistema.
   - Lo de "otra carpeta" va a la papelera propia de Tachito (`.tachito-papelera`).
-  - Las dos se ven juntas en la pantalla **Papelera**, con *Restaurar* en cada elemento y *Vaciar papelera* para borrar definitivamente. Lo que no se vacía se borra solo a los 30 días.
+  - Las dos se ven juntas en la pantalla **Papelera**, con selección múltiple (*Todos*) para *Restaurar* o *Borrar* lo marcado, y *Vaciar papelera* para borrar todo. Fotos, videos y audio se restauran con un solo diálogo del sistema. Lo que no se vacía se borra solo a los 30 días.
 - **Acerca de** (icono ⓘ arriba): versión y contacto del autor.
 - **Contador** de espacio liberado en la sesión y en total.
 - **Diseño**: estilo shadcn/ui (bordes finos, tarjetas, controles segmentados) con la paleta del logo. Tiene modo claro y oscuro.

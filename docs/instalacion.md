@@ -15,7 +15,7 @@ Guía para compartir con familia y amigos.
 1. Abre Tachito y dale permiso para ver fotos y videos.
 2. Elige qué revisar:
    - **Tipo**: fotos, videos o ambos.
-   - **Orden**: "Más pesados" libera espacio más rápido.
+   - **Orden**: por defecto "Más antiguos". "Más pesados" libera espacio más rápido.
    - **Fuente**: WhatsApp, cámara, capturas, etc.
 3. Toca **Empezar**.
 4. Revisa cada foto:
@@ -25,7 +25,7 @@ Guía para compartir con familia y amigos.
    - En fotos, la lupa abre la foto en grande para hacer zoom (pellizca, toca dos veces o usa + y −).
 5. Cuando termines, toca el botón rojo **Enviar a la papelera** y confirma.
 
-Lo borrado queda **30 días** en la papelera. Desde el icono 🗑 de arriba puedes ver la papelera, restaurar cosas o tocar **Vaciar papelera** para liberar el espacio de inmediato.
+Lo borrado queda **30 días** en la papelera. Desde el icono 🗑 de arriba puedes ver la papelera. Marca los elementos (o toca **Todos**) y elige **Restaurar** o **Borrar**. Sin nada marcado, **Vaciar papelera** borra todo y libera el espacio de inmediato.
 
 ¿No encuentras una carpeta? Usa **Elegir otra carpeta…** al final de la lista de carpetas. Sirve también para carpetas que la galería no muestra.
 

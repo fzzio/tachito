@@ -12,6 +12,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -34,7 +35,9 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /** Un elemento de la papelera: del sistema (own = null) o de la papelera propia de Tachito. */
-data class TrashRow(val media: Media, val own: TrashBin.Item? = null, val bin: TrashBin? = null)
+data class TrashRow(val media: Media, val own: TrashBin.Item? = null, val bin: TrashBin? = null) {
+    val key get() = (if (own != null) "o" else "s") + media.id
+}
 
 fun loadTrash(ctx: Context): List<TrashRow> {
     val system = runCatching { querySystemTrash(ctx.contentResolver) }.getOrDefault(emptyList()).map { TrashRow(it) }
@@ -69,10 +72,14 @@ fun TrashScreen(onBack: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var rows by remember { mutableStateOf<List<TrashRow>?>(null) }
-    var confirmEmpty by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf<List<TrashRow>?>(null) }
+    var selected by remember { mutableStateOf(emptySet<String>()) }
     var reload by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(reload) { rows = withContext(Dispatchers.IO) { loadTrash(ctx) } }
+    LaunchedEffect(reload) {
+        rows = withContext(Dispatchers.IO) { loadTrash(ctx) }
+        selected = emptySet()
+    }
     BackHandler(onBack = onBack)
 
     // Diálogos del sistema para fotos/videos/audio (restaurar o borrar definitivo)
@@ -80,29 +87,28 @@ fun TrashScreen(onBack: () -> Unit) {
         if (it.resultCode == Activity.RESULT_OK) reload++
     }
 
-    fun restore(row: TrashRow) {
-        val m = row.media
-        when {
-            row.own != null -> scope.launch {
-                val ok = withContext(Dispatchers.IO) { row.bin!!.restore(row.own) }
-                if (ok) rescan(ctx, listOf(row.own.original))
-                else Toast.makeText(ctx, "Ya existe un archivo con ese nombre en la carpeta original", Toast.LENGTH_LONG).show()
-                reload++
+    /** Restaura varios a la vez: un solo diálogo del sistema para fotos/videos/audio. */
+    fun restore(all: List<TrashRow>) = scope.launch {
+        val (own, system) = all.partition { it.own != null }
+        val (media, others) = system.map { it.media }.partition { it.isMediaItem }
+        val failed = withContext(Dispatchers.IO) {
+            val notRestored = own.filterNot { it.bin!!.restore(it.own!!) }
+            rescan(ctx, (own - notRestored.toSet()).map { it.own!!.original })
+            val extras = Bundle().apply { putInt(MediaStore.QUERY_ARG_MATCH_TRASHED, MediaStore.MATCH_INCLUDE) }
+            others.forEach {
+                runCatching { ctx.contentResolver.update(it.uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_TRASHED, 0) }, extras) }
             }
-
-            m.isMediaItem -> systemLauncher.launch(
-                IntentSenderRequest.Builder(MediaStore.createTrashRequest(ctx.contentResolver, listOf(m.uri), false).intentSender).build()
-            )
-
-            else -> {
-                val extras = Bundle().apply { putInt(MediaStore.QUERY_ARG_MATCH_TRASHED, MediaStore.MATCH_INCLUDE) }
-                runCatching { ctx.contentResolver.update(m.uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_TRASHED, 0) }, extras) }
-                reload++
-            }
+            notRestored.size
         }
+        if (failed > 0) Toast.makeText(ctx, "$failed no se restauraron: ya existe un archivo con ese nombre en la carpeta original", Toast.LENGTH_LONG).show()
+        if (media.isNotEmpty()) {
+            systemLauncher.launch(
+                IntentSenderRequest.Builder(MediaStore.createTrashRequest(ctx.contentResolver, media.map { it.uri }, false).intentSender).build()
+            )
+        } else reload++
     }
 
-    fun emptyAll(all: List<TrashRow>) = scope.launch {
+    fun deleteForever(all: List<TrashRow>) = scope.launch {
         val (own, system) = all.partition { it.own != null }
         val (media, others) = system.map { it.media }.partition { it.isMediaItem }
         withContext(Dispatchers.IO) {
@@ -131,51 +137,72 @@ fun TrashScreen(onBack: () -> Unit) {
             )
 
             else -> {
-                Column(Modifier.padding(horizontal = 20.dp)) {
-                    Text("${list.size} elementos · ${ctx.fmt(list.sumOf { it.media.size })}", fontWeight = FontWeight.SemiBold)
-                    Text("Se borran solos a los $TRASH_DAYS días. Vacía la papelera para liberar el espacio ya.", color = muted, fontSize = 13.sp)
+                val chosen = list.filter { it.key in selected }
+                Row(Modifier.padding(start = 20.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("${list.size} elementos · ${ctx.fmt(list.sumOf { it.media.size })}", fontWeight = FontWeight.SemiBold)
+                        Text("Se borran solos a los $TRASH_DAYS días.", color = muted, fontSize = 13.sp)
+                    }
+                    TextButton(onClick = { selected = if (chosen.size == list.size) emptySet() else list.map { it.key }.toSet() }) {
+                        Text(if (chosen.size == list.size) "Ninguno" else "Todos")
+                    }
                 }
-                LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(20.dp)) {
-                    items(list, key = { (if (it.own != null) "o" else "s") + it.media.id }) { row ->
-                        TrashItem(row) { restore(row) }
+                LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp)) {
+                    items(list, key = { it.key }) { row ->
+                        TrashItem(row, row.key in selected) {
+                            selected = if (row.key in selected) selected - row.key else selected + row.key
+                        }
                         RowDivider()
                     }
                 }
                 Column {
                     RowDivider()
-                    Button(
-                        onClick = { confirmEmpty = true },
-                        shape = RADIUS,
-                        colors = ButtonDefaults.buttonColors(containerColor = RED, contentColor = androidx.compose.ui.graphics.Color.White),
-                        modifier = Modifier.fillMaxWidth().padding(16.dp).height(52.dp),
-                    ) {
-                        Icon(Icons.Default.Delete, null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Vaciar papelera", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                    // Sin selección: vaciar todo. Con selección: restaurar o borrar solo lo marcado.
+                    Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        if (chosen.isNotEmpty()) OutlinedButton(
+                            onClick = { restore(chosen) },
+                            shape = RADIUS,
+                            border = border,
+                            modifier = Modifier.weight(1f).height(52.dp),
+                        ) {
+                            Icon(AppIcons.Undo, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Restaurar ${chosen.size}", fontWeight = FontWeight.SemiBold)
+                        }
+                        Button(
+                            onClick = { confirmDelete = chosen.ifEmpty { list } },
+                            shape = RADIUS,
+                            colors = ButtonDefaults.buttonColors(containerColor = RED, contentColor = androidx.compose.ui.graphics.Color.White),
+                            modifier = Modifier.weight(1f).height(52.dp),
+                        ) {
+                            Icon(Icons.Default.Delete, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text(if (chosen.isEmpty()) "Vaciar papelera" else "Borrar ${chosen.size}", fontWeight = FontWeight.SemiBold)
+                        }
                     }
                 }
             }
         }
     }
 
-    val list = rows
-    if (confirmEmpty && list != null) AlertDialog(
-        onDismissRequest = { confirmEmpty = false },
+    val toDelete = confirmDelete
+    if (toDelete != null) AlertDialog(
+        onDismissRequest = { confirmDelete = null },
         icon = { Icon(Icons.Default.Delete, null, tint = RED) },
         title = { Text("¿Borrar para siempre?") },
-        text = { Text("Se eliminarán ${list.size} elementos (${ctx.fmt(list.sumOf { it.media.size })}). Esto no se puede deshacer.") },
+        text = { Text("Se eliminarán ${toDelete.size} elementos (${ctx.fmt(toDelete.sumOf { it.media.size })}). Esto no se puede deshacer.") },
         confirmButton = {
-            TextButton(onClick = { confirmEmpty = false; emptyAll(list) }) { Text("Vaciar", color = RED, fontWeight = FontWeight.SemiBold) }
+            TextButton(onClick = { confirmDelete = null; deleteForever(toDelete) }) { Text("Borrar", color = RED, fontWeight = FontWeight.SemiBold) }
         },
-        dismissButton = { TextButton(onClick = { confirmEmpty = false }) { Text("Cancelar") } },
+        dismissButton = { TextButton(onClick = { confirmDelete = null }) { Text("Cancelar") } },
     )
 }
 
 @Composable
-private fun TrashItem(row: TrashRow, onRestore: () -> Unit) {
+private fun TrashItem(row: TrashRow, checked: Boolean, onToggle: () -> Unit) {
     val ctx = LocalContext.current
     val m = row.media
-    Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(52.dp).clip(RADIUS).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
             if (m.isImage || m.isVideo) Thumbnail(m, Modifier.fillMaxSize(), maxSide = 200, crop = true)
             else Icon(if (m.isAudio) AppIcons.Music else AppIcons.File, null, tint = muted)
@@ -191,6 +218,6 @@ private fun TrashItem(row: TrashRow, onRestore: () -> Unit) {
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        TextButton(onClick = onRestore) { Text("Restaurar") }
+        Checkbox(checked, { onToggle() })
     }
 }
