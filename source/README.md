@@ -75,7 +75,8 @@ Automático con GitHub Actions ([`.github/workflows/build.yml`](../.github/workf
 - **Merge a `main`**:
   1. Corre los tests.
   2. Compila el APK firmado.
-  3. Publica un [Release](https://github.com/fzzio/tachito/releases) con el APK adjunto (`Tachito-1.1.<n>.apk`).
+  3. Publica un [Release](https://github.com/fzzio/tachito/releases) `v1.1.<n>` con el APK adjunto como `Tachito.apk` y borra los releases anteriores (solo queda el último).
+  4. El link fijo [releases/latest/download/Tachito.apk](https://github.com/fzzio/tachito/releases/latest/download/Tachito.apk) siempre baja la última versión.
 
 El número de build `<n>` sale de la corrida de CI. Así `versionCode` siempre sube y cada APK se instala encima del anterior. Para un cambio grande, sube `baseVersion` en `app/build.gradle.kts` (por ejemplo, `"1.2"`).
 

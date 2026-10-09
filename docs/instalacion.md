@@ -4,7 +4,7 @@ Guía para compartir con familia y amigos.
 
 ## Instalar
 
-1. Descarga el archivo `Tachito-X.Y.apk` que te pasaron (por WhatsApp, Drive, etc.).
+1. Descarga **[Tachito.apk](https://github.com/fzzio/tachito/releases/latest/download/Tachito.apk)** desde el teléfono. Ese link siempre trae la última versión.
 2. Ábrelo. Android avisa que la app viene de una "fuente desconocida".
 3. Toca **Configuración** y activa **Permitir de esta fuente**. Esto se hace una sola vez.
 4. Vuelve atrás y toca **Instalar**.

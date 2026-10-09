@@ -49,16 +49,26 @@ jobs:
         if: github.event_name == 'push'
         run: ./gradlew assembleRelease -PbuildNumber=${{ github.run_number }}
 
+      # Nombre fijo del APK: el link .../releases/latest/download/Tachito.apk siempre baja la última versión
       - name: Publicar release
         if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="$(grep -oP 'baseVersion = "\K[^"]+' app/build.gradle.kts).${{ github.run_number }}"
-          APK="Tachito-$VERSION.apk"
-          cp app/build/outputs/apk/release/app-release.apk "$APK"
-          gh release create "v$VERSION" "$APK" \
+          cp app/build/outputs/apk/release/app-release.apk Tachito.apk
+          gh release create "v$VERSION" Tachito.apk \
             --target "$GITHUB_SHA" \
             --title "Tachito $VERSION" \
-            --notes "Descarga \`$APK\` en el teléfono y ábrelo para instalar o actualizar. [Guía](https://github.com/${{ github.repository }}/blob/main/docs/instalacion.md)" \
+            --notes "Descarga \`Tachito.apk\` en el teléfono y ábrelo para instalar o actualizar. [Guía](https://github.com/${{ github.repository }}/blob/main/docs/instalacion.md)" \
             --generate-notes
+
+      # Solo queda disponible el último APK
+      - name: Borrar releases anteriores
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          KEEP="v$(grep -oP 'baseVersion = "\K[^"]+' app/build.gradle.kts).${{ github.run_number }}"
+          gh release list --limit 100 --json tagName -q '.[].tagName' | grep -vxF "$KEEP" \
+            | xargs -r -n1 gh release delete --cleanup-tag --yes

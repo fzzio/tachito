@@ -349,8 +349,9 @@ fun SwipeScreen(items: List<Media>, onExit: () -> Unit) {
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.Top,
         ) {
-            ActionButton(Icons.Default.Delete, "Borrar", RED, 72, enabled = current != null) { fling(true) }
+            // Mismo orden que Tinder: deshacer, descartar, conservar
             ActionButton(AppIcons.Undo, "Deshacer", MaterialTheme.colorScheme.onSurfaceVariant, 56, enabled = history.isNotEmpty()) { undo() }
+            ActionButton(Icons.Default.Delete, "Borrar", RED, 72, enabled = current != null) { fling(true) }
             ActionButton(Icons.Default.Check, "Conservar", GREEN, 72, enabled = current != null) { fling(false) }
         }
 
