@@ -2,6 +2,7 @@ package app.tachito
 
 import android.content.ContentResolver
 import android.content.ContentUris
+import android.database.Cursor
 import android.net.Uri
 import android.provider.BaseColumns
 import android.provider.MediaStore
@@ -18,6 +19,10 @@ data class Media(
     val name: String = "",
     val durationMs: Long = 0,
     val owner: String = "",
+    /** Ruta absoluta si viene de "Elegir otra carpeta" (fuera de MediaStore). Esos van a la papelera propia. */
+    val file: String? = null,
+    /** Solo en papelera: cuándo se borra solo (ms). */
+    val expires: Long = 0,
 ) {
     val isImage get() = mime.startsWith("image/")
     val isVideo get() = mime.startsWith("video/")
@@ -26,6 +31,7 @@ data class Media(
 
     val uri: Uri
         get() = when {
+            file != null -> Uri.fromFile(java.io.File(file))
             isImage -> ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
             isVideo -> ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id)
             isAudio -> ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
@@ -103,33 +109,35 @@ fun List<Media>.select(f: Filter): List<Media> {
     }
 }
 
+val MEDIA_PROJECTION = arrayOf(
+    BaseColumns._ID, MediaColumns.MIME_TYPE, MediaColumns.SIZE, MediaColumns.DATE_TAKEN, MediaColumns.DATE_ADDED,
+    MediaColumns.BUCKET_DISPLAY_NAME, MediaColumns.RELATIVE_PATH, MediaColumns.DISPLAY_NAME,
+    MediaColumns.DURATION, MediaColumns.OWNER_PACKAGE_NAME, MediaColumns.DATE_EXPIRES,
+)
+
+fun Cursor.toMediaList(): List<Media> = buildList {
+    while (moveToNext()) add(
+        Media(
+            id = getLong(0),
+            mime = getString(1) ?: "",
+            size = getLong(2),
+            date = getLong(3).takeIf { it > 0 } ?: (getLong(4) * 1000),
+            album = getString(5) ?: "Sin carpeta",
+            path = getString(6) ?: "",
+            name = getString(7) ?: "",
+            durationMs = getLong(8),
+            owner = getString(9) ?: "",
+            expires = getLong(10) * 1000,
+        )
+    )
+}
+
 // Elementos en la papelera del sistema no aparecen: MediaStore los excluye por defecto.
 fun queryMedia(cr: ContentResolver, files: Boolean): List<Media> {
-    val projection = arrayOf(
-        BaseColumns._ID, MediaColumns.MIME_TYPE, MediaColumns.SIZE, MediaColumns.DATE_TAKEN, MediaColumns.DATE_ADDED,
-        MediaColumns.BUCKET_DISPLAY_NAME, MediaColumns.RELATIVE_PATH, MediaColumns.DISPLAY_NAME,
-        MediaColumns.DURATION, MediaColumns.OWNER_PACKAGE_NAME,
-    )
     val visual = "${FileColumns.MEDIA_TYPE_IMAGE}, ${FileColumns.MEDIA_TYPE_VIDEO}"
     val selection =
         if (files) "${FileColumns.MEDIA_TYPE} NOT IN ($visual) AND ${MediaColumns.MIME_TYPE} IS NOT NULL AND ${MediaColumns.SIZE} > 0"
         else "${FileColumns.MEDIA_TYPE} IN ($visual)"
-    return cr.query(MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL), projection, selection, null, null)
-        ?.use { c ->
-            buildList {
-                while (c.moveToNext()) add(
-                    Media(
-                        id = c.getLong(0),
-                        mime = c.getString(1) ?: "",
-                        size = c.getLong(2),
-                        date = c.getLong(3).takeIf { it > 0 } ?: (c.getLong(4) * 1000),
-                        album = c.getString(5) ?: "Sin carpeta",
-                        path = c.getString(6) ?: "",
-                        name = c.getString(7) ?: "",
-                        durationMs = c.getLong(8),
-                        owner = c.getString(9) ?: "",
-                    )
-                )
-            }
-        } ?: emptyList()
+    return cr.query(MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL), MEDIA_PROJECTION, selection, null, null)
+        ?.use { it.toMediaList() } ?: emptyList()
 }

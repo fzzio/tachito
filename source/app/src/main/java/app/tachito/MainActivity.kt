@@ -6,6 +6,10 @@ import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.ThumbnailUtils
+import android.provider.DocumentsContract
+import androidx.core.content.FileProvider
+import java.io.File
 import android.graphics.ImageDecoder
 import android.graphics.SurfaceTexture
 import android.media.MediaPlayer
@@ -74,9 +78,6 @@ import java.text.DateFormat
 import java.util.Date
 import kotlin.math.abs
 
-private val RED = Color(0xFFE53935)
-private val GREEN = Color(0xFF43A047)
-
 private val PERMISSIONS =
     if (Build.VERSION.SDK_INT >= 33) arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO)
     else arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
@@ -84,24 +85,15 @@ private val PERMISSIONS =
 private fun hasMediaPermission(ctx: Context) =
     PERMISSIONS.any { ctx.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
 
-private fun Context.fmt(bytes: Long) = Formatter.formatShortFileSize(this, bytes)
+fun Context.fmt(bytes: Long) = Formatter.formatShortFileSize(this, bytes)
 
-private fun Context.prefs() = getSharedPreferences("tachito", Context.MODE_PRIVATE)
+fun Context.prefs() = getSharedPreferences("tachito", Context.MODE_PRIVATE)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            val dark = isSystemInDarkTheme()
-            val scheme = when {
-                Build.VERSION.SDK_INT >= 31 && dark -> dynamicDarkColorScheme(this)
-                Build.VERSION.SDK_INT >= 31 -> dynamicLightColorScheme(this)
-                dark -> darkColorScheme()
-                else -> lightColorScheme()
-            }
-            MaterialTheme(colorScheme = scheme) {
-                Surface(Modifier.fillMaxSize()) { App() }
-            }
+            TachitoTheme { App() }
         }
     }
 }
@@ -142,18 +134,58 @@ fun App() {
     var filter by remember { mutableStateOf(Filter()) }
     var all by remember { mutableStateOf<List<Media>?>(null) }
     var deck by remember { mutableStateOf<List<Media>?>(null) }
+    var trashOpen by remember { mutableStateOf(false) }
+    var folderPath by remember { mutableStateOf<String?>(null) }
+    var folderItems by remember { mutableStateOf<List<Media>?>(null) }
+    var trash by remember { mutableStateOf(0 to 0L) }
     val needsFilesAccess = filter.files && !filesGranted
+    val onMenu = deck == null && !trashOpen
 
+    // La papelera propia se vacía sola pasados los 30 días.
+    LaunchedEffect(filesGranted) {
+        if (filesGranted) withContext(Dispatchers.IO) { allBins(ctx).forEach { runCatching { it.purge() } } }
+    }
     // Recarga al volver al menú: lo enviado a la papelera ya no aparece.
-    LaunchedEffect(deck == null, filter.files, filesGranted) {
-        if (deck != null) return@LaunchedEffect
+    LaunchedEffect(onMenu, filter.files, filesGranted) {
+        if (!onMenu) return@LaunchedEffect
         all = null
         all = if (needsFilesAccess) emptyList() else withContext(Dispatchers.IO) { queryMedia(ctx.contentResolver, filter.files) }
+        trash = withContext(Dispatchers.IO) { loadTrash(ctx).let { l -> l.size to l.sumOf { it.media.size } } }
+    }
+    LaunchedEffect(onMenu, folderPath, filter.files) {
+        val path = folderPath ?: return@LaunchedEffect
+        if (!onMenu) return@LaunchedEffect
+        folderItems = null
+        folderItems = withContext(Dispatchers.IO) { scanFolder(File(path), filter.files) }
+    }
+
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) folderPath = treeIdToPath(DocumentsContract.getTreeDocumentId(uri))
     }
 
     val d = deck
-    if (d == null) SetupScreen(all, filter, needsFilesAccess, { filter = it }, onStart = { deck = it })
-    else SwipeScreen(d, onExit = { deck = null })
+    when {
+        trashOpen -> TrashScreen(onBack = { trashOpen = false })
+        d != null -> SwipeScreen(d, onExit = { deck = null })
+        else -> SetupScreen(
+            all = all,
+            filter = filter,
+            onFilter = { filter = it },
+            needsFilesAccess = needsFilesAccess,
+            folder = folderPath?.let { FolderPick(it, folderItems) },
+            onPickFolder = {
+                if (filesGranted) picker.launch(null)
+                else {
+                    Toast.makeText(ctx, "Primero activa \"Acceso a todos los archivos\" para Tachito", Toast.LENGTH_LONG).show()
+                    ctx.openFilesAccessSettings()
+                }
+            },
+            onClearFolder = { folderPath = null; folderItems = null },
+            trash = trash,
+            onOpenTrash = { trashOpen = true },
+            onStart = { deck = it },
+        )
+    }
 }
 
 @Composable
@@ -164,6 +196,8 @@ fun PermissionScreen(asked: Boolean, onRequest: () -> Unit) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        Logo(72)
+        Spacer(Modifier.height(16.dp))
         Text("Tachito", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(16.dp))
         Text("Para revisar tus fotos y videos necesito permiso para verlos. Nada sale de tu teléfono.", textAlign = TextAlign.Center)
@@ -176,140 +210,8 @@ fun PermissionScreen(asked: Boolean, onRequest: () -> Unit) {
 private fun Context.openAppSettings() =
     startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
 
-private fun Context.openFilesAccessSettings() =
+fun Context.openFilesAccessSettings() =
     startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.fromParts("package", packageName, null)))
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-fun SetupScreen(
-    all: List<Media>?,
-    filter: Filter,
-    needsFilesAccess: Boolean,
-    onFilter: (Filter) -> Unit,
-    onStart: (List<Media>) -> Unit,
-) {
-    val ctx = LocalContext.current
-    val totalFreed = remember { ctx.prefs().getLong("freed", 0) }
-
-    Column(Modifier.fillMaxSize().systemBarsPadding()) {
-        Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp)) {
-            Text("Tachito", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-            Text(
-                if (totalFreed > 0) "Has liberado ${ctx.fmt(totalFreed)} en total" else "Izquierda borra, derecha conserva",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        TabRow(selectedTabIndex = if (filter.files) 1 else 0, modifier = Modifier.padding(top = 12.dp)) {
-            listOf("Fotos y videos", "Archivos").forEachIndexed { i, label ->
-                Tab(selected = filter.files == (i == 1), onClick = { onFilter(Filter(files = i == 1, order = filter.order)) }, text = { Text(label) })
-            }
-        }
-
-        when {
-            needsFilesAccess -> Column(
-                Modifier.weight(1f).fillMaxWidth().padding(32.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Icon(AppIcons.Doc, null, Modifier.size(56.dp), tint = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.height(16.dp))
-                Text(
-                    "Para revisar audios, documentos y otros archivos, Android pide activar \"Acceso a todos los archivos\" para Tachito.",
-                    textAlign = TextAlign.Center,
-                )
-                Spacer(Modifier.height(24.dp))
-                Button(onClick = { ctx.openFilesAccessSettings() }) { Text("Activar acceso") }
-            }
-
-            all == null -> Box(Modifier.weight(1f).fillMaxWidth()) { CircularProgressIndicator(Modifier.align(Alignment.Center)) }
-
-            else -> SetupOptions(all, filter, onFilter, onStart, Modifier.weight(1f))
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun SetupOptions(all: List<Media>, filter: Filter, onFilter: (Filter) -> Unit, onStart: (List<Media>) -> Unit, modifier: Modifier) {
-    val ctx = LocalContext.current
-    val byKind = remember(all, filter.kind) { all.filter { it.matches(filter.kind) } }
-    val presets = remember(byKind) {
-        Preset.entries.map { p -> p to byKind.filter(p.test) }.filter { it.second.isNotEmpty() }
-    }
-    val albums = remember(byKind) {
-        byKind.groupBy { it.album }.map { (name, l) -> Triple(name, l.size, l.sumOf { it.size }) }.sortedByDescending { it.third }
-    }
-    val selection = remember(all, filter) { all.select(filter) }
-    val kinds = Kind.entries.filter { it.files == null || it.files == filter.files }
-
-    Column(modifier) {
-        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
-            item {
-                SectionTitle("Tipo")
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    kinds.forEach { FilterChip(filter.kind == it, { onFilter(filter.copy(kind = it)) }, { Text(it.label) }) }
-                }
-            }
-            item {
-                SectionTitle("Orden")
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Order.entries.forEach { FilterChip(filter.order == it, { onFilter(filter.copy(order = it)) }, { Text(it.label) }) }
-                }
-            }
-            item { SectionTitle("Fuente (puedes marcar varias)") }
-            item {
-                SourceRow("Todo", byKind.size, byKind.sumOf { it.size }, filter.sources.isEmpty()) {
-                    onFilter(filter.copy(sources = emptySet()))
-                }
-            }
-            items(presets, key = { it.first.name }) { (p, l) ->
-                val source = Source.Group(p)
-                SourceRow(p.label, l.size, l.sumOf { it.size }, source in filter.sources) { onFilter(filter.toggle(source)) }
-            }
-            if (presets.any { it.first == Preset.GOOGLE_PHOTOS }) item {
-                Text(
-                    "Google Fotos: solo las copias guardadas en este teléfono. Lo que está únicamente en la nube no se puede borrar desde aquí.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 48.dp, end = 8.dp, bottom = 4.dp),
-                )
-            }
-            item { SectionTitle("Carpetas") }
-            items(albums, key = { "album:" + it.first }) { (name, count, bytes) ->
-                val source = Source.Album(name)
-                SourceRow(name, count, bytes, source in filter.sources) { onFilter(filter.toggle(source)) }
-            }
-        }
-        Button(
-            onClick = { onStart(selection) },
-            enabled = selection.isNotEmpty(),
-            modifier = Modifier.fillMaxWidth().padding(16.dp).height(56.dp),
-        ) {
-            Text("Empezar · ${selection.size} · ${ctx.fmt(selection.sumOf { it.size })}", fontSize = 16.sp)
-        }
-    }
-}
-
-private fun Filter.toggle(s: Source) = copy(sources = if (s in sources) sources - s else sources + s)
-
-@Composable
-private fun SectionTitle(text: String) {
-    Text(text, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 20.dp, bottom = 4.dp))
-}
-
-@Composable
-private fun SourceRow(name: String, count: Int, bytes: Long, selected: Boolean, onClick: () -> Unit) {
-    val ctx = LocalContext.current
-    Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Checkbox(selected, { onClick() })
-        Text(name, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text("$count · ${ctx.fmt(bytes)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.width(8.dp))
-    }
-}
 
 @Composable
 fun SwipeScreen(items: List<Media>, onExit: () -> Unit) {
@@ -342,7 +244,10 @@ fun SwipeScreen(items: List<Media>, onExit: () -> Unit) {
     }
 
     fun sendToTrash() {
-        val (media, others) = pending.partition { it.isMediaItem }
+        // Archivos de "Elegir otra carpeta": papelera propia (la del sistema no los acepta)
+        val own = pending.filter { it.file != null }
+        if (own.isNotEmpty()) trashed(moveToOwnTrash(ctx, own))
+        val (media, others) = pending.filter { it.file == null }.partition { it.isMediaItem }
         // createTrashRequest solo acepta fotos/videos/audio. Lo demás se marca directo
         // (posible gracias al acceso a todos los archivos); el toque en "Enviar" es la confirmación.
         val done = others.filter {
@@ -585,7 +490,10 @@ private fun FileCard(m: Media, active: Boolean, modifier: Modifier = Modifier) {
                 else -> FilledTonalButton(onClick = {
                     runCatching {
                         ctx.startActivity(
-                            Intent(Intent.ACTION_VIEW).setDataAndType(m.uri, m.mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            Intent(Intent.ACTION_VIEW).setDataAndType(
+                                m.file?.let { FileProvider.getUriForFile(ctx, "${ctx.packageName}.files", File(it)) } ?: m.uri,
+                                m.mime,
+                            ).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         )
                     }.onFailure { Toast.makeText(ctx, "No hay una app para abrir este archivo", Toast.LENGTH_SHORT).show() }
                 }) {
@@ -627,23 +535,30 @@ private fun AudioButton(uri: Uri) {
 }
 
 @Composable
-private fun Thumbnail(m: Media, modifier: Modifier) {
+fun Thumbnail(m: Media, modifier: Modifier, maxSide: Int = 1600, crop: Boolean = false) {
     val ctx = LocalContext.current
     val bitmap by produceState<ImageBitmap?>(null, m.id) {
         value = withContext(Dispatchers.IO) {
             runCatching {
-                if (m.isVideo) ctx.contentResolver.loadThumbnail(m.uri, Size(720, 1280), null)
-                else ImageDecoder.decodeBitmap(ImageDecoder.createSource(ctx.contentResolver, m.uri)) { decoder, info, _ ->
-                    // Reduce a ~1600px de lado: suficiente para pantalla, evita cargar fotos de 50MP en memoria
-                    var sample = 1
-                    while (maxOf(info.size.width, info.size.height) / (sample * 2) >= 1600) sample *= 2
-                    decoder.setTargetSampleSize(sample)
+                val file = m.file?.let(::File)
+                val size = Size(maxSide * 9 / 16, maxSide)
+                when {
+                    m.isVideo && file != null -> ThumbnailUtils.createVideoThumbnail(file, size, null)
+                    m.isVideo -> ctx.contentResolver.loadThumbnail(m.uri, size, null)
+                    else -> ImageDecoder.decodeBitmap(
+                        if (file != null) ImageDecoder.createSource(file) else ImageDecoder.createSource(ctx.contentResolver, m.uri)
+                    ) { decoder, info, _ ->
+                        // Reduce al tamaño necesario: evita cargar fotos de 50MP en memoria
+                        var sample = 1
+                        while (maxOf(info.size.width, info.size.height) / (sample * 2) >= maxSide) sample *= 2
+                        decoder.setTargetSampleSize(sample)
+                    }
                 }
             }.getOrNull()?.asImageBitmap()
         }
     }
     Box(modifier) {
-        bitmap?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit) }
+        bitmap?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = if (crop) ContentScale.Crop else ContentScale.Fit) }
             ?: CircularProgressIndicator(Modifier.align(Alignment.Center), color = Color.White)
     }
 }

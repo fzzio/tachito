@@ -24,7 +24,9 @@ Guía para compartir con familia y amigos.
    - **↶** deshace la última decisión.
 5. Cuando termines, toca el botón rojo **Enviar a la papelera** y confirma.
 
-Lo borrado queda **30 días** en la papelera de Google Fotos o de tu galería, por si te arrepientes.
+Lo borrado queda **30 días** en la papelera. Desde el icono 🗑 de arriba puedes ver la papelera, restaurar cosas o tocar **Vaciar papelera** para liberar el espacio de inmediato.
+
+¿No encuentras una carpeta? Usa **Elegir otra carpeta…** al final de la lista de carpetas. Sirve también para carpetas que la galería no muestra.
 
 ## Modo Archivos
 
