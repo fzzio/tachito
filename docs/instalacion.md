@@ -22,6 +22,8 @@ Guía para compartir con familia y amigos.
    - Desliza a la **izquierda** (o 🗑) para borrar.
    - Desliza a la **derecha** (o ✓) para conservar.
    - **↶** deshace la última decisión.
+   - La barra de arriba salta a cualquier punto de la lista.
+   - Si cierras la app, al volver a **Empezar** con los mismos filtros sigue donde te quedaste (salvo en orden aleatorio).
    - En fotos, la lupa abre la foto en grande para hacer zoom (pellizca, toca dos veces o usa + y −).
 5. Cuando termines, toca el botón rojo **Enviar a la papelera** y confirma.
 
