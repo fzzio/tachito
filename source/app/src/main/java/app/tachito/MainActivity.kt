@@ -32,7 +32,12 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
@@ -136,8 +141,35 @@ fun App() {
     var folderPath by remember { mutableStateOf<String?>(null) }
     var folderItems by remember { mutableStateOf<List<Media>?>(null) }
     var trash by remember { mutableStateOf(0 to 0L) }
+    var grid by remember { mutableStateOf<List<Media>?>(null) }
+    var tags by remember { mutableStateOf<Map<Long, Tag>>(emptyMap()) }
+    var analyzing by remember { mutableStateOf(0 to 0) } // (hechas, total) de esta pasada
     val needsFilesAccess = filter.files && !filesGranted
-    val onMenu = deck == null && !trashOpen
+    val onMenu = deck == null && grid == null && !trashOpen
+
+    // Clasifica por contenido las imágenes nuevas, en segundo plano mientras la app está abierta.
+    // ponytail: una pasada por apertura; lo que llegue con la app abierta se analiza en la siguiente.
+    LaunchedEffect(mediaGranted) {
+        if (!mediaGranted) return@LaunchedEffect
+        val store = tagStore(ctx)
+        tags = withContext(Dispatchers.IO) { store.load() }
+        val todo = withContext(Dispatchers.IO) {
+            queryMedia(ctx.contentResolver, false).filter { it.isImage && it.id !in tags }.sortedBy { it.date }
+        }
+        analyzing = 0 to todo.size
+        withContext(Dispatchers.IO) {
+            Classifier(ctx).use { c ->
+                for (chunk in todo.chunked(20)) {
+                    val batch = chunk.associateWith { c.tag(it) }
+                    val ok = batch.entries.mapNotNull { (m, t) -> t?.let { m.id to it } }.toMap()
+                    store.add(ok)
+                    withContext(Dispatchers.Main) { tags = tags + ok; analyzing = analyzing.first + chunk.size to todo.size }
+                    if (ok.size < chunk.size) break // OCR no disponible: reintentar en la próxima apertura
+                }
+            }
+            withContext(Dispatchers.Main) { analyzing = todo.size to todo.size }
+        }
+    }
 
     // La papelera propia se vacía sola pasados los 30 días.
     LaunchedEffect(filesGranted) {
@@ -162,13 +194,17 @@ fun App() {
     }
 
     val d = deck
+    val g = grid
     when {
         trashOpen -> TrashScreen(onBack = { trashOpen = false })
         d != null -> SwipeScreen(d, resumeKey(filter, folderPath), onExit = { deck = null })
+        g != null -> GridScreen(g, onExit = { grid = null })
         else -> SetupScreen(
             all = all,
             filter = filter,
             onFilter = { filter = it },
+            tags = tags,
+            analyzing = analyzing,
             needsFilesAccess = needsFilesAccess,
             folder = folderPath?.let { FolderPick(it, folderItems) },
             onPickFolder = {
@@ -182,6 +218,7 @@ fun App() {
             trash = trash,
             onOpenTrash = { trashOpen = true },
             onStart = { deck = it },
+            onGrid = { grid = it },
         )
     }
 }
@@ -214,7 +251,7 @@ fun Context.openFilesAccessSettings() =
 /** Clave para retomar cada combinación de filtros donde se quedó. En orden aleatorio no tiene sentido. */
 private fun resumeKey(f: Filter, folder: String?) =
     if (f.order == Order.RANDOM) null
-    else listOf("pos", f.files, f.kind, f.order, folder, f.sources.map { it.toString() }.sorted()).joinToString("|")
+    else listOf("pos", f.files, f.kind, f.order, folder, f.sources.map { it.toString() }.sorted(), f.contents.sorted()).joinToString("|")
 
 @Composable
 fun SwipeScreen(items: List<Media>, resumeKey: String?, onExit: () -> Unit) {
@@ -243,47 +280,18 @@ fun SwipeScreen(items: List<Media>, resumeKey: String?, onExit: () -> Unit) {
     var width by remember { mutableIntStateOf(1) }
 
     fun trashed(done: List<Media>) {
-        val bytes = done.sumOf { it.size }
-        freed += bytes
-        val prefs = ctx.prefs()
-        prefs.edit().putLong("freed", prefs.getLong("freed", 0) + bytes).apply()
+        freed += done.sumOf { it.size }
         pending.removeAll(done)
         history.clear() // lo ya enviado a la papelera no se puede deshacer aquí
     }
 
-    val trashLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { r ->
-        if (r.resultCode == Activity.RESULT_OK) {
-            trashed(pending.filter { it.isMediaItem })
-            if (exitAfterTrash) onExit()
-        }
+    val toTrash = rememberTrasher { done ->
+        trashed(done)
+        if (exitAfterTrash && pending.isEmpty()) onExit()
         exitAfterTrash = false
     }
 
-    fun sendToTrash() {
-        // Archivos de "Elegir otra carpeta": papelera propia (la del sistema no los acepta)
-        val own = pending.filter { it.file != null }
-        if (own.isNotEmpty()) trashed(moveToOwnTrash(ctx, own))
-        val (media, others) = pending.filter { it.file == null }.partition { it.isMediaItem }
-        // createTrashRequest solo acepta fotos/videos/audio. Lo demás se marca directo
-        // (posible gracias al acceso a todos los archivos); el toque en "Enviar" es la confirmación.
-        val done = others.filter {
-            runCatching {
-                ctx.contentResolver.update(it.uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_TRASHED, 1) }, null) > 0
-            }.getOrDefault(false)
-        }
-        trashed(done)
-        if (done.size < others.size) {
-            Toast.makeText(ctx, "No se pudieron mover ${others.size - done.size} archivos", Toast.LENGTH_SHORT).show()
-        }
-        if (media.isNotEmpty()) {
-            // ponytail: una sola solicitud para todo el lote; si alguien marca miles de golpe y falla, dividir en tandas.
-            val pi = MediaStore.createTrashRequest(ctx.contentResolver, media.map { it.uri }, true)
-            trashLauncher.launch(IntentSenderRequest.Builder(pi.intentSender).build())
-        } else {
-            if (exitAfterTrash && pending.isEmpty()) onExit()
-            exitAfterTrash = false
-        }
-    }
+    fun sendToTrash() = toTrash(pending.toList())
 
     fun decide(delete: Boolean) {
         val m = items.getOrNull(index) ?: return
@@ -407,6 +415,141 @@ fun SwipeScreen(items: List<Media>, resumeKey: String?, onExit: () -> Unit) {
         dismissButton = {
             TextButton(onClick = { askExit = false; onExit() }) { Text("Salir sin borrar") }
         },
+    )
+}
+
+/**
+ * Envía a la papelera: la propia para archivos de "Elegir otra carpeta" (la del sistema no los acepta),
+ * la del sistema para lo demás. Llama a onDone una vez, con lo que sí se movió.
+ */
+@Composable
+fun rememberTrasher(onDone: (List<Media>) -> Unit): (List<Media>) -> Unit {
+    val ctx = LocalContext.current
+    val done by rememberUpdatedState(onDone)
+    var waiting by remember { mutableStateOf(emptyList<Media>() to emptyList<Media>()) } // (ya movidos, esperando diálogo)
+
+    fun finish(moved: List<Media>) {
+        val bytes = moved.sumOf { it.size }
+        val prefs = ctx.prefs()
+        prefs.edit().putLong("freed", prefs.getLong("freed", 0) + bytes).apply()
+        done(moved)
+    }
+
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { r ->
+        val (moved, media) = waiting
+        waiting = emptyList<Media>() to emptyList()
+        finish(if (r.resultCode == Activity.RESULT_OK) moved + media else moved)
+    }
+
+    return { items ->
+        val own = items.filter { it.file != null }
+        val (media, others) = items.filter { it.file == null }.partition { it.isMediaItem }
+        // createTrashRequest solo acepta fotos/videos/audio. Lo demás se marca directo
+        // (posible gracias al acceso a todos los archivos); el toque en "Enviar" es la confirmación.
+        val marked = others.filter {
+            runCatching {
+                ctx.contentResolver.update(it.uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_TRASHED, 1) }, null) > 0
+            }.getOrDefault(false)
+        }
+        if (marked.size < others.size) {
+            Toast.makeText(ctx, "No se pudieron mover ${others.size - marked.size} archivos", Toast.LENGTH_SHORT).show()
+        }
+        val moved = (if (own.isNotEmpty()) moveToOwnTrash(ctx, own) else emptyList()) + marked
+        if (media.isNotEmpty()) {
+            waiting = moved to media
+            // ponytail: una sola solicitud para todo el lote; si alguien marca miles de golpe y falla, dividir en tandas.
+            val pi = MediaStore.createTrashRequest(ctx.contentResolver, media.map { it.uri }, true)
+            launcher.launch(IntentSenderRequest.Builder(pi.intentSender).build())
+        } else finish(moved)
+    }
+}
+
+/** Borrado en masa: todo viene marcado; se desmarca lo que se quiere conservar. Mantener presionado = ver grande. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun GridScreen(items: List<Media>, onExit: () -> Unit) {
+    val ctx = LocalContext.current
+    var list by remember { mutableStateOf(items) }
+    var selected by remember { mutableStateOf(items.map { it.id }.toSet()) }
+    var askExit by remember { mutableStateOf(false) }
+    var zoom by remember { mutableStateOf<Media?>(null) }
+    val chosen = list.filter { it.id in selected }
+
+    val toTrash = rememberTrasher { done ->
+        if (done.isNotEmpty()) Toast.makeText(ctx, "Liberaste ${ctx.fmt(done.sumOf { it.size })}", Toast.LENGTH_SHORT).show()
+        val ids = done.map { it.id }.toSet()
+        list = list.filter { it.id !in ids }
+        selected = selected - ids
+        if (list.isEmpty()) onExit()
+    }
+    fun back() {
+        if (selected.isNotEmpty()) askExit = true else onExit()
+    }
+    BackHandler(onBack = ::back)
+
+    Column(Modifier.fillMaxSize().systemBarsPadding()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = ::back) { Icon(Icons.Default.ArrowBack, "Volver") }
+            Column(Modifier.weight(1f)) {
+                Text("${chosen.size} de ${list.size} marcadas", fontWeight = FontWeight.SemiBold)
+                Text("Toca las que quieras conservar", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+            }
+            TextButton(onClick = { selected = if (chosen.size == list.size) emptySet() else list.map { it.id }.toSet() }) {
+                Text(if (chosen.size == list.size) "Ninguna" else "Todas")
+            }
+        }
+        LazyVerticalGrid(
+            GridCells.Fixed(3),
+            Modifier.weight(1f),
+            contentPadding = PaddingValues(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            items(list, key = { it.id }) { m ->
+                val on = m.id in selected
+                Box(
+                    Modifier
+                        .aspectRatio(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.Black)
+                        .combinedClickable(
+                            onClick = { selected = if (on) selected - m.id else selected + m.id },
+                            onLongClick = { if (m.isImage) zoom = m },
+                        ),
+                ) {
+                    Thumbnail(m, Modifier.fillMaxSize(), maxSide = 300, crop = true)
+                    if (m.isVideo) Icon(Icons.Default.PlayArrow, null, Modifier.align(Alignment.Center).size(32.dp), tint = Color.White)
+                    if (on) {
+                        Box(Modifier.fillMaxSize().background(RED.copy(alpha = 0.25f)))
+                        Icon(
+                            Icons.Default.Delete, "Marcada para borrar",
+                            Modifier.align(Alignment.TopEnd).padding(6.dp).size(26.dp).background(RED, RoundedCornerShape(50)).padding(4.dp),
+                            tint = Color.White,
+                        )
+                    }
+                }
+            }
+        }
+        Button(
+            onClick = { toTrash(chosen) },
+            enabled = chosen.isNotEmpty(),
+            colors = ButtonDefaults.buttonColors(containerColor = RED),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).height(52.dp),
+        ) {
+            Icon(Icons.Default.Delete, null)
+            Spacer(Modifier.width(8.dp))
+            Text("Enviar ${chosen.size} a la papelera · ${ctx.fmt(chosen.sumOf { it.size })}")
+        }
+    }
+
+    zoom?.let { m -> ZoomViewer(m.name, 1, { zoom = null }) { loadBitmap(ctx, m, 4096)?.asImageBitmap() } }
+
+    if (askExit) AlertDialog(
+        onDismissRequest = { askExit = false },
+        title = { Text("¿Salir sin borrar?") },
+        text = { Text("Tienes ${chosen.size} marcadas (${ctx.fmt(chosen.sumOf { it.size })}). Si sales no se borra nada.") },
+        confirmButton = { TextButton(onClick = { askExit = false }) { Text("Seguir aquí") } },
+        dismissButton = { TextButton(onClick = { askExit = false; onExit() }) { Text("Salir sin borrar") } },
     )
 }
 

@@ -25,6 +25,8 @@ android {
         val buildNumber = (findProperty("buildNumber") as String?)?.toInt()
         versionCode = if (buildNumber != null) 100 + buildNumber else 2
         versionName = baseVersion + (buildNumber?.let { ".$it" } ?: "")
+        // Solo teléfonos ARM (el OCR trae ~11 MB por arquitectura); x86_64 en debug para el emulador
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }
 
     signingConfigs {
@@ -37,6 +39,9 @@ android {
     }
 
     buildTypes {
+        debug {
+            ndk { abiFilters += "x86_64" }
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -51,6 +56,8 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
+    // Comprimir las librerías nativas: APK mucho más chico para compartir por WhatsApp
+    packaging { jniLibs { useLegacyPackaging = true } }
     composeOptions { kotlinCompilerExtensionVersion = "1.5.10" }
 }
 
@@ -59,5 +66,7 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-core")
     implementation("androidx.activity:activity-compose:1.8.2")
+    // OCR en el teléfono con el modelo incluido: funciona sin internet y sin depender de que Play Services lo baje.
+    implementation("com.google.mlkit:text-recognition:16.0.1")
     testImplementation("junit:junit:4.13.2")
 }

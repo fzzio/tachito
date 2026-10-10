@@ -90,6 +90,8 @@ data class Filter(
     val sources: Set<Source> = emptySet(),
     val kind: Kind = Kind.ALL,
     val order: Order = Order.OLDEST,
+    /** Vacío = sin filtrar por contenido. Con varias, unión. Lo aún no analizado no entra. */
+    val contents: Set<Content> = emptySet(),
 )
 
 fun Media.matches(kind: Kind) = kind == Kind.ALL || this.kind == kind
@@ -99,8 +101,11 @@ fun Media.matches(source: Source) = when (source) {
     is Source.Album -> album == source.name
 }
 
-fun List<Media>.select(f: Filter): List<Media> {
-    val l = filter { it.matches(f.kind) && (f.sources.isEmpty() || f.sources.any(it::matches)) }
+fun Media.matches(contents: Set<Content>, tags: Map<Long, Tag>) =
+    contents.isEmpty() || tags[id]?.let { t -> contents.any { it.test(t) } } == true
+
+fun List<Media>.select(f: Filter, tags: Map<Long, Tag> = emptyMap()): List<Media> {
+    val l = filter { it.matches(f.kind) && (f.sources.isEmpty() || f.sources.any(it::matches)) && it.matches(f.contents, tags) }
     return when (f.order) {
         Order.BIGGEST -> l.sortedByDescending { it.size }
         Order.OLDEST -> l.sortedBy { it.date }
