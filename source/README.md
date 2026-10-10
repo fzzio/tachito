@@ -11,7 +11,7 @@ App nativa Android para revisar fotos, videos y archivos uno por uno y enviarlos
   - **De dónde**: Galería (cámara), Capturas, WhatsApp, Google Fotos, Telegram, Descargas o cualquier carpeta. Se pueden marcar varias y se suman.
   - **Carpetas**: lista plegable con buscador.
 - **Elegir otra carpeta…**: abre el explorador de carpetas de Android. Sirve para carpetas que la galería no muestra (con `.nomedia`, como "WhatsApp Images/Sent" o cachés).
-- **Modo limpieza**: izquierda o 🗑 borra, derecha o ✓ conserva, ↶ deshace.
+- **Modo limpieza**: izquierda o 🗑 borra, derecha o ✓ conserva, ↶ deshace. Una barra salta a cualquier punto y, con los mismos filtros, retoma donde se quedó (salvo en orden aleatorio).
   - Los videos se reproducen sin sonido, con un botón para activarlo.
   - Las fotos tienen botón de zoom: visor a pantalla completa con pellizcar, doble toque o botones +/−.
   - Los PDF muestran la primera página y tienen visor propio (páginas y zoom) con `PdfRenderer`.

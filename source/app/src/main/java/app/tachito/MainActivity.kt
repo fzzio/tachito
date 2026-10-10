@@ -74,6 +74,7 @@ import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Date
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 private val PERMISSIONS =
     if (Build.VERSION.SDK_INT >= 33) arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO)
@@ -163,7 +164,7 @@ fun App() {
     val d = deck
     when {
         trashOpen -> TrashScreen(onBack = { trashOpen = false })
-        d != null -> SwipeScreen(d, onExit = { deck = null })
+        d != null -> SwipeScreen(d, resumeKey(filter, folderPath), onExit = { deck = null })
         else -> SetupScreen(
             all = all,
             filter = filter,
@@ -210,11 +211,29 @@ private fun Context.openAppSettings() =
 fun Context.openFilesAccessSettings() =
     startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.fromParts("package", packageName, null)))
 
+/** Clave para retomar cada combinación de filtros donde se quedó. En orden aleatorio no tiene sentido. */
+private fun resumeKey(f: Filter, folder: String?) =
+    if (f.order == Order.RANDOM) null
+    else listOf("pos", f.files, f.kind, f.order, folder, f.sources.map { it.toString() }.sorted()).joinToString("|")
+
 @Composable
-fun SwipeScreen(items: List<Media>, onExit: () -> Unit) {
+fun SwipeScreen(items: List<Media>, resumeKey: String?, onExit: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    var index by remember { mutableIntStateOf(0) }
+    // Se guarda el id del siguiente por revisar (no se borra al decidir), no la posición: lo enviado a la papelera desplaza la lista.
+    val resumeAt = remember {
+        val id = resumeKey?.let { ctx.prefs().getLong(it, 0L) }
+        items.indexOfFirst { it.id == id }.coerceAtLeast(0)
+    }
+    var index by remember { mutableIntStateOf(resumeAt) }
+    LaunchedEffect(Unit) {
+        if (resumeAt > 0) Toast.makeText(ctx, "Retomando donde te quedaste (${resumeAt + 1} de ${items.size})", Toast.LENGTH_SHORT).show()
+    }
+    LaunchedEffect(index) {
+        val key = resumeKey ?: return@LaunchedEffect
+        val next = items.getOrNull(index)
+        ctx.prefs().edit().apply { if (next == null) remove(key) else putLong(key, next.id) }.apply()
+    }
     val history = remember { mutableStateListOf<Pair<Media, Boolean>>() } // (media, borrar)
     val pending = remember { mutableStateListOf<Media>() }
     var freed by remember { mutableLongStateOf(0L) }
@@ -276,7 +295,7 @@ fun SwipeScreen(items: List<Media>, onExit: () -> Unit) {
     fun undo() {
         val (m, deleted) = history.removeAt(history.lastIndex)
         if (deleted) pending.remove(m)
-        index--
+        index = items.indexOf(m) // tras saltar con la barra, index-- no volvería a la anterior
     }
 
     val current = items.getOrNull(index)
@@ -303,6 +322,13 @@ fun SwipeScreen(items: List<Media>, onExit: () -> Unit) {
             Text("Liberado: ${ctx.fmt(freed)}", color = GREEN, fontWeight = FontWeight.Bold)
             Spacer(Modifier.width(12.dp))
         }
+        // Barra para saltar a cualquier punto del total
+        if (items.size > 1) Slider(
+            value = minOf(index, items.lastIndex).toFloat(),
+            onValueChange = { index = it.roundToInt() },
+            valueRange = 0f..items.lastIndex.toFloat(),
+            modifier = Modifier.padding(horizontal = 16.dp).height(24.dp),
+        )
 
         Box(Modifier.weight(1f).fillMaxWidth().padding(12.dp).onSizeChanged { width = it.width }) {
             if (current == null) {
