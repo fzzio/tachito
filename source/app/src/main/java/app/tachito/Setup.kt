@@ -37,6 +37,8 @@ fun SetupScreen(
     all: List<Media>?,
     filter: Filter,
     onFilter: (Filter) -> Unit,
+    tags: Map<Long, Tag>,
+    analyzing: Pair<Int, Int>,
     needsFilesAccess: Boolean,
     folder: FolderPick?,
     onPickFolder: () -> Unit,
@@ -44,12 +46,13 @@ fun SetupScreen(
     trash: Pair<Int, Long>,
     onOpenTrash: () -> Unit,
     onStart: (List<Media>) -> Unit,
+    onGrid: (List<Media>) -> Unit,
 ) {
     val ctx = LocalContext.current
     val totalFreed = remember { ctx.prefs().getLong("freed", 0) }
     val source = folder?.items ?: all
-    val selection = remember(source, filter, folder) {
-        source?.select(if (folder != null) filter.copy(sources = emptySet()) else filter).orEmpty()
+    val selection = remember(source, filter, folder, tags) {
+        source?.select(if (folder != null) filter.copy(sources = emptySet(), contents = emptySet()) else filter, tags).orEmpty()
     }
 
     Column(Modifier.fillMaxSize().systemBarsPadding()) {
@@ -97,6 +100,9 @@ fun SetupScreen(
 
             else -> LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 20.dp)) {
                 item { WhatSection(filter, onFilter) }
+                if (folder == null && !filter.files && filter.kind != Kind.VIDEOS) item {
+                    ContentSection(all.orEmpty(), filter, onFilter, tags, analyzing)
+                }
                 item {
                     if (folder != null) FolderSection(folder, onClearFolder)
                     else SourcesSection(all.orEmpty(), filter, onFilter, onPickFolder)
@@ -107,17 +113,34 @@ fun SetupScreen(
         // Barra inferior fija
         if (!needsFilesAccess) Column(Modifier.fillMaxWidth()) {
             RowDivider()
+            Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            // Cuadrícula para borrar en masa (sin miniaturas en modo Archivos)
+            if (!filter.files) OutlinedButton(
+                onClick = { onGrid(selection) },
+                enabled = selection.isNotEmpty(),
+                shape = RADIUS,
+                border = border,
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                modifier = Modifier.height(52.dp),
+            ) {
+                Icon(AppIcons.Grid, null)
+                Spacer(Modifier.width(8.dp))
+                Text("Ver todas")
+            }
             Button(
                 onClick = { onStart(selection) },
                 enabled = selection.isNotEmpty(),
                 shape = RADIUS,
-                modifier = Modifier.fillMaxWidth().padding(16.dp).height(52.dp),
+                modifier = Modifier.weight(1f).height(52.dp),
             ) {
                 Text(
                     if (selection.isEmpty()) "Nada que revisar" else "Empezar · ${selection.size} · ${ctx.fmt(selection.sumOf { it.size })}",
                     fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
+            }
             }
         }
     }
@@ -170,6 +193,50 @@ private fun WhatSection(filter: Filter, onFilter: (Filter) -> Unit) {
         RowDivider()
         SelectRow("Orden", Order.entries, filter.order, { it.label }) { onFilter(filter.copy(order = it)) }
     }
+}
+
+@Composable
+private fun ContentSection(all: List<Media>, filter: Filter, onFilter: (Filter) -> Unit, tags: Map<Long, Tag>, analyzing: Pair<Int, Int>) {
+    val ctx = LocalContext.current
+    // Conteos dentro de lo ya elegido en "De dónde" (ej. solo WhatsApp)
+    val counts = remember(all, filter.sources, tags) {
+        val base = all.select(Filter(sources = filter.sources, kind = Kind.PHOTOS), tags)
+        Content.entries.map { c -> c to base.filter { m -> tags[m.id]?.let(c::test) == true } }
+    }.filter { (c, l) -> l.isNotEmpty() || c in filter.contents }
+    val (done, total) = analyzing
+    Section(
+        "Por contenido",
+        trailing = {
+            Text(
+                if (done < total) "Analizando $done de $total…" else if (filter.contents.isNotEmpty()) "Limpiar (${filter.contents.size})" else "",
+                color = muted,
+                fontSize = 13.sp,
+                modifier = Modifier.clip(RADIUS).clickable(enabled = filter.contents.isNotEmpty()) {
+                    onFilter(filter.copy(contents = emptySet()))
+                }.padding(4.dp),
+            )
+        },
+    ) {
+        if (counts.isEmpty()) Text(
+            if (done < total) "Analizando tus imágenes…" else "Nada para mostrar aquí",
+            color = muted,
+            modifier = Modifier.padding(16.dp),
+        )
+        counts.forEachIndexed { i, (c, l) ->
+            if (i > 0) RowDivider()
+            CheckRow(c.label, "${l.size} · ${ctx.fmt(l.sumOf { it.size })}", c in filter.contents) {
+                val on = c !in filter.contents
+                // Para decidir qué borrar en masa conviene ver primero lo más viejo
+                onFilter(filter.copy(contents = if (on) filter.contents + c else filter.contents - c, order = if (on) Order.OLDEST else filter.order))
+            }
+        }
+    }
+    Text(
+        "Recibidas: las que no salieron de tu cámara. Se analiza el texto de cada imagen aquí mismo, sin internet. Puede equivocarse: revisa antes de borrar.",
+        fontSize = 12.sp,
+        color = muted,
+        modifier = Modifier.padding(top = 6.dp, start = 4.dp),
+    )
 }
 
 @Composable

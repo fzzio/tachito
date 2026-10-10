@@ -45,7 +45,8 @@ fun loadBitmap(ctx: Context, m: Media, maxSide: Int): Bitmap? = runCatching {
     val size = Size(maxSide * 9 / 16, maxSide)
     when {
         m.isVideo && file != null -> ThumbnailUtils.createVideoThumbnail(file, size, null)
-        m.isVideo -> ctx.contentResolver.loadThumbnail(m.uri, size, null)
+        // Miniaturas chicas (cuadrícula): las que ya guarda el sistema, mucho más rápido que decodificar
+        m.isVideo || maxSide <= 400 && file == null -> ctx.contentResolver.loadThumbnail(m.uri, size, null)
         else -> ImageDecoder.decodeBitmap(
             if (file != null) ImageDecoder.createSource(file) else ImageDecoder.createSource(ctx.contentResolver, m.uri)
         ) { decoder, info, _ ->

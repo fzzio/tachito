@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
@@ -8,6 +9,9 @@
         android:maxSdkVersion="32" />
     <!-- Solo para el modo Archivos (audios, documentos...). Se activa a mano en Ajustes. -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <!-- ML Kit los agrega para mandar estadísticas de uso; la app no usa internet (el modelo de OCR viene en el APK) -->
+    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
 
     <!-- Para ver qué app creó cada archivo (fuente Google Fotos / WhatsApp / Telegram) -->
     <queries>
