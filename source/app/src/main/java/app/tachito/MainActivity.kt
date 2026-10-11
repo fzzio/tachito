@@ -198,7 +198,7 @@ fun App() {
     when {
         trashOpen -> TrashScreen(onBack = { trashOpen = false })
         d != null -> SwipeScreen(d, resumeKey(filter, folderPath), onExit = { deck = null })
-        g != null -> GridScreen(g, onExit = { grid = null })
+        g != null -> GridScreen(g, preselect = filter.contents.isNotEmpty() && folderPath == null, onExit = { grid = null })
         else -> SetupScreen(
             all = all,
             filter = filter,
@@ -271,8 +271,11 @@ fun SwipeScreen(items: List<Media>, resumeKey: String?, onExit: () -> Unit) {
         val next = items.getOrNull(index)
         ctx.prefs().edit().apply { if (next == null) remove(key) else putLong(key, next.id) }.apply()
     }
-    val history = remember { mutableStateListOf<Pair<Media, Boolean>>() } // (media, borrar)
-    val pending = remember { mutableStateListOf<Media>() }
+    // Una decisión por imagen (id -> borrar): volver con la barra y decidir de nuevo la reemplaza, no la duplica.
+    val marks = remember { mutableStateMapOf<Long, Boolean>() }
+    val history = remember { mutableStateListOf<Long>() } // orden de las decisiones, para deshacer
+    var gone by remember { mutableStateOf(emptySet<Long>()) } // ya enviadas a la papelera
+    val pending by remember { derivedStateOf { items.filter { marks[it.id] == true && it.id !in gone } } }
     var freed by remember { mutableLongStateOf(0L) }
     var muted by remember { mutableStateOf(true) }
     var askExit by remember { mutableStateOf(false) }
@@ -281,7 +284,7 @@ fun SwipeScreen(items: List<Media>, resumeKey: String?, onExit: () -> Unit) {
 
     fun trashed(done: List<Media>) {
         freed += done.sumOf { it.size }
-        pending.removeAll(done)
+        gone = gone + done.map { it.id }
         history.clear() // lo ya enviado a la papelera no se puede deshacer aquí
     }
 
@@ -295,15 +298,16 @@ fun SwipeScreen(items: List<Media>, resumeKey: String?, onExit: () -> Unit) {
 
     fun decide(delete: Boolean) {
         val m = items.getOrNull(index) ?: return
-        history += m to delete
-        if (delete) pending += m
+        marks[m.id] = delete
+        history.remove(m.id)
+        history += m.id
         index++
     }
 
     fun undo() {
-        val (m, deleted) = history.removeAt(history.lastIndex)
-        if (deleted) pending.remove(m)
-        index = items.indexOf(m) // tras saltar con la barra, index-- no volvería a la anterior
+        val id = history.removeAt(history.lastIndex)
+        marks.remove(id)
+        index = items.indexOfFirst { it.id == id } // tras saltar con la barra, index-- no volvería a la anterior
     }
 
     val current = items.getOrNull(index)
@@ -327,7 +331,10 @@ fun SwipeScreen(items: List<Media>, resumeKey: String?, onExit: () -> Unit) {
                 Icon(Icons.Default.ArrowBack, "Volver")
             }
             Text("${minOf(index + 1, items.size)} / ${items.size}", Modifier.weight(1f))
-            Text("Liberado: ${ctx.fmt(freed)}", color = GREEN, fontWeight = FontWeight.Bold)
+            when {
+                pending.isNotEmpty() -> Text("${pending.size} ${if (pending.size == 1) "marcada" else "marcadas"} · ${ctx.fmt(pending.sumOf { it.size })}", color = RED, fontWeight = FontWeight.Bold)
+                freed > 0 -> Text("Liberado: ${ctx.fmt(freed)}", color = GREEN, fontWeight = FontWeight.Bold)
+            }
             Spacer(Modifier.width(12.dp))
         }
         // Barra para saltar a cualquier punto del total
@@ -340,8 +347,20 @@ fun SwipeScreen(items: List<Media>, resumeKey: String?, onExit: () -> Unit) {
 
         Box(Modifier.weight(1f).fillMaxWidth().padding(12.dp).onSizeChanged { width = it.width }) {
             if (current == null) {
-                Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(Modifier.align(Alignment.Center).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("¡Revisaste todo!", style = MaterialTheme.typography.headlineSmall)
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        when {
+                            pending.isNotEmpty() ->
+                                "Marcaste ${pending.size} para borrar (${ctx.fmt(pending.sumOf { it.size })}). Todavía no se borró nada: " +
+                                    "confírmalo con el botón rojo. Las que no marcaste se quedan."
+                            freed > 0 -> "Liberaste ${ctx.fmt(freed)}. Lo borrado queda $TRASH_DAYS días en la papelera por si te arrepientes."
+                            else -> "No marcaste nada para borrar."
+                        },
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     Spacer(Modifier.height(16.dp))
                     OutlinedButton(onClick = { if (pending.isNotEmpty()) askExit = true else onExit() }) { Text("Volver al menú") }
                 }
@@ -370,6 +389,21 @@ fun SwipeScreen(items: List<Media>, resumeKey: String?, onExit: () -> Unit) {
                             },
                     ) {
                         AnyCard(current, active = true, muted = muted, onToggleMute = { muted = !muted })
+                        // Al volver a una ya decidida: se ve qué se eligió; deslizar de nuevo la cambia
+                        marks[current.id]?.let { del ->
+                            Row(
+                                Modifier
+                                    .align(Alignment.TopStart)
+                                    .padding(12.dp)
+                                    .background(if (del) RED else GREEN, RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(if (del) Icons.Default.Delete else Icons.Default.Check, null, Modifier.size(18.dp), tint = Color.White)
+                                Spacer(Modifier.width(4.dp))
+                                Text(if (del) "Marcada para borrar" else "Conservada", color = Color.White, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
                         // Sello centrado con icono y tinte: en los costados se cortaba o confundía el lado
                         Stamp(Icons.Default.Delete, "BORRAR", RED, (-progress).coerceIn(0f, 1f), Modifier.align(Alignment.TopCenter))
                         Stamp(Icons.Default.Check, "CONSERVAR", GREEN, progress.coerceIn(0f, 1f), Modifier.align(Alignment.TopCenter))
@@ -467,10 +501,11 @@ fun rememberTrasher(onDone: (List<Media>) -> Unit): (List<Media>) -> Unit {
 /** Borrado en masa: todo viene marcado; se desmarca lo que se quiere conservar. Mantener presionado = ver grande. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun GridScreen(items: List<Media>, onExit: () -> Unit) {
+fun GridScreen(items: List<Media>, preselect: Boolean, onExit: () -> Unit) {
     val ctx = LocalContext.current
     var list by remember { mutableStateOf(items) }
-    var selected by remember { mutableStateOf(items.map { it.id }.toSet()) }
+    // Todo marcado solo al venir de "Por contenido"; con "Todo" sería demasiado fácil mandar fotos propias a la papelera
+    var selected by remember { mutableStateOf(if (preselect) items.map { it.id }.toSet() else emptySet()) }
     var askExit by remember { mutableStateOf(false) }
     var zoom by remember { mutableStateOf<Media?>(null) }
     val chosen = list.filter { it.id in selected }
@@ -492,7 +527,7 @@ fun GridScreen(items: List<Media>, onExit: () -> Unit) {
             IconButton(onClick = ::back) { Icon(Icons.Default.ArrowBack, "Volver") }
             Column(Modifier.weight(1f)) {
                 Text("${chosen.size} de ${list.size} marcadas", fontWeight = FontWeight.SemiBold)
-                Text("Toca las que quieras conservar", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+                Text(if (preselect) "Toca las que quieras conservar" else "Toca las que quieras borrar", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
             }
             TextButton(onClick = { selected = if (chosen.size == list.size) emptySet() else list.map { it.id }.toSet() }) {
                 Text(if (chosen.size == list.size) "Ninguna" else "Todas")
