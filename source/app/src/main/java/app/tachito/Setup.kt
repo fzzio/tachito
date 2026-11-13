@@ -47,6 +47,8 @@ fun SetupScreen(
     onClearFolder: () -> Unit,
     trash: Pair<Int, Long>,
     onOpenTrash: () -> Unit,
+    partialAccess: Boolean,
+    onMoreAccess: () -> Unit,
     onStart: (List<Media>) -> Unit,
     onGrid: (List<Media>) -> Unit,
 ) {
@@ -94,6 +96,20 @@ fun SetupScreen(
         ) {
             Text("${ctx.fmt(trash.second)} en la papelera aún ocupan espacio", Modifier.weight(1f), fontSize = 14.sp)
             TextButton(onClick = onOpenTrash) { Text("Vaciar", color = RED, fontWeight = FontWeight.SemiBold) }
+        }
+
+        if (partialAccess) Row(
+            Modifier
+                .padding(start = 20.dp, end = 20.dp, top = 12.dp)
+                .fillMaxWidth()
+                .clip(RADIUS)
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                .clickable(onClick = onMoreAccess)
+                .padding(start = 16.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Solo ves las fotos que elegiste", Modifier.weight(1f), fontSize = 14.sp)
+            TextButton(onClick = onMoreAccess) { Text("Ver todas", fontWeight = FontWeight.SemiBold) }
         }
 
         Segmented(
@@ -218,7 +234,7 @@ private fun ContentSection(all: List<Media>, filter: Filter, onFilter: (Filter) 
     // Conteos dentro de lo ya elegido en "De dónde" (ej. solo WhatsApp)
     val counts = remember(all, filter.sources, tags) {
         val base = all.select(Filter(sources = filter.sources, kind = Kind.PHOTOS), tags)
-        Content.entries.map { c -> c to base.filter { m -> tags[m.id]?.let(c::test) == true } }
+        Content.entries.map { c -> c to base.filter { m -> m.matches(c, tags) } }
     }.filter { (c, l) -> l.isNotEmpty() || c in filter.contents }
     val (done, total) = analyzing
     Section(
@@ -249,7 +265,7 @@ private fun ContentSection(all: List<Media>, filter: Filter, onFilter: (Filter) 
         }
     }
     Text(
-        "Recibidas: las que no salieron de tu cámara. Se analiza el texto de cada imagen aquí mismo, sin internet. Puede equivocarse: revisa antes de borrar.",
+        "Recibidas: las que no salieron de tu cámara ni son capturas. Se analiza el texto de cada imagen aquí mismo, sin internet. Puede equivocarse: revisa antes de borrar.",
         fontSize = 12.sp,
         color = muted,
         modifier = Modifier.padding(top = 6.dp, start = 4.dp),
@@ -261,8 +277,10 @@ private fun SourcesSection(all: List<Media>, filter: Filter, onFilter: (Filter) 
     // Conteos dentro de lo ya elegido en "Por contenido", para que cuadren con el botón Empezar
     val byKind = remember(all, filter.kind, filter.contents, tags) { all.filter { it.matches(filter.kind) && it.matches(filter.contents, tags) } }
     val presets = remember(byKind) { Preset.entries.map { p -> p to byKind.filter(p.test) }.filter { it.second.isNotEmpty() } }
-    val albums = remember(byKind) {
+    val albums = remember(byKind, presets, filter.sources) {
         byKind.groupBy { it.album }.map { (name, l) -> Triple(name, l.size, l.sumOf { it.size }) }.sortedByDescending { it.third }
+            // Sin duplicar un grupo de arriba con el mismo nombre (ej. "Capturas de pantalla"), salvo que esté marcada
+            .filter { (name) -> Source.Album(name) in filter.sources || presets.none { it.first.label.equals(name, true) } }
     }
 
     Section(

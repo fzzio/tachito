@@ -70,15 +70,22 @@ enum class Order(val label: String) {
 }
 
 enum class Preset(val label: String, val test: (Media) -> Boolean) {
-    CAMERA("Galería (cámara)", { it.path.startsWith("DCIM/", true) }),
+    // Samsung y otros guardan capturas y grabaciones dentro de DCIM: no son fotos de cámara
+    CAMERA("Galería (cámara)", { it.path.startsWith("DCIM/", true) && !it.isScreenCapture }),
     // Algunos teléfonos en español guardan en "Capturas de pantalla" en vez de "Screenshots"
     SCREENSHOTS("Capturas de pantalla", { it.path.contains("screenshot", true) || it.path.contains("captura", true) }),
+    // Samsung: DCIM/Screen recordings. Pixel las guarda en Movies sin distinguir: esas no entran.
+    SCREEN_RECORDINGS("Grabaciones de pantalla", { SCREEN_RECORDING.containsMatchIn(it.path) }),
     WHATSAPP("WhatsApp", { it.path.contains("whatsapp", true) || it.owner.startsWith("com.whatsapp") }),
     // Solo copias locales: Google Fotos no permite tocar la nube.
     GOOGLE_PHOTOS("Google Fotos", { it.owner == "com.google.android.apps.photos" || it.path.contains("Google Photos", true) }),
     TELEGRAM("Telegram", { it.path.contains("telegram", true) || it.owner.startsWith("org.telegram") }),
     DOWNLOADS("Descargas", { it.path.startsWith("Download/", true) }),
 }
+
+private val SCREEN_RECORDING = Regex("screen ?record|grabaci[oó]n", RegexOption.IGNORE_CASE)
+
+val Media.isScreenCapture get() = Preset.SCREENSHOTS.test(this) || Preset.SCREEN_RECORDINGS.test(this)
 
 sealed interface Source {
     data class Group(val preset: Preset) : Source
@@ -103,7 +110,11 @@ fun Media.matches(source: Source) = when (source) {
 }
 
 fun Media.matches(contents: Set<Content>, tags: Map<Long, Tag>) =
-    contents.isEmpty() || tags[id]?.let { t -> contents.any { it.test(t) } } == true
+    contents.isEmpty() || contents.any { matches(it, tags) }
+
+/** Las capturas propias no cuentan como recibidas aunque no salieron de la cámara. */
+fun Media.matches(c: Content, tags: Map<Long, Tag>) =
+    tags[id]?.let(c::test) == true && !(c == Content.RECEIVED && Preset.SCREENSHOTS.test(this))
 
 fun List<Media>.select(f: Filter, tags: Map<Long, Tag> = emptyMap()): List<Media> {
     val l = filter { it.matches(f.kind) && (f.sources.isEmpty() || f.sources.any(it::matches)) && it.matches(f.contents, tags) }
@@ -144,6 +155,8 @@ fun queryMedia(cr: ContentResolver, files: Boolean): List<Media> {
     val selection =
         if (files) "${FileColumns.MEDIA_TYPE} NOT IN ($visual) AND ${MediaColumns.MIME_TYPE} IS NOT NULL AND ${MediaColumns.SIZE} > 0"
         else "${FileColumns.MEDIA_TYPE} IN ($visual)"
-    return cr.query(MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL), MEDIA_PROJECTION, selection, null, null)
+    // Carpetas ocultas (ej. la papelera propia .tachito-papelera): borrar su índice impide restaurar
+    val notHidden = " AND COALESCE(${MediaColumns.RELATIVE_PATH}, '') NOT LIKE '.%' AND COALESCE(${MediaColumns.RELATIVE_PATH}, '') NOT LIKE '%/.%'"
+    return cr.query(MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL), MEDIA_PROJECTION, selection + notHidden, null, null)
         ?.use { it.toMediaList() } ?: emptyList()
 }
