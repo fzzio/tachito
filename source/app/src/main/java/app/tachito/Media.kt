@@ -70,15 +70,22 @@ enum class Order(val label: String) {
 }
 
 enum class Preset(val label: String, val test: (Media) -> Boolean) {
-    CAMERA("Galería (cámara)", { it.path.startsWith("DCIM/", true) }),
+    // Samsung y otros guardan capturas y grabaciones dentro de DCIM: no son fotos de cámara
+    CAMERA("Galería (cámara)", { it.path.startsWith("DCIM/", true) && !it.isScreenCapture }),
     // Algunos teléfonos en español guardan en "Capturas de pantalla" en vez de "Screenshots"
     SCREENSHOTS("Capturas de pantalla", { it.path.contains("screenshot", true) || it.path.contains("captura", true) }),
+    // Samsung: DCIM/Screen recordings. Pixel las guarda en Movies sin distinguir: esas no entran.
+    SCREEN_RECORDINGS("Grabaciones de pantalla", { SCREEN_RECORDING.containsMatchIn(it.path) }),
     WHATSAPP("WhatsApp", { it.path.contains("whatsapp", true) || it.owner.startsWith("com.whatsapp") }),
     // Solo copias locales: Google Fotos no permite tocar la nube.
     GOOGLE_PHOTOS("Google Fotos", { it.owner == "com.google.android.apps.photos" || it.path.contains("Google Photos", true) }),
     TELEGRAM("Telegram", { it.path.contains("telegram", true) || it.owner.startsWith("org.telegram") }),
     DOWNLOADS("Descargas", { it.path.startsWith("Download/", true) }),
 }
+
+private val SCREEN_RECORDING = Regex("screen ?record|grabaci[oó]n", RegexOption.IGNORE_CASE)
+
+val Media.isScreenCapture get() = Preset.SCREENSHOTS.test(this) || Preset.SCREEN_RECORDINGS.test(this)
 
 sealed interface Source {
     data class Group(val preset: Preset) : Source

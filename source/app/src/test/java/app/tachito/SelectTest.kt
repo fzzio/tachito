@@ -41,6 +41,21 @@ class SelectTest {
     }
 
     @Test
+    fun screenCaptures() {
+        val l = listOf(
+            Media(1, "image/jpeg", size = 1, date = 1, album = "Camera", path = "DCIM/Camera/"),
+            Media(2, "image/png", size = 1, date = 2, album = "Screenshots", path = "DCIM/Screenshots/"),
+            Media(3, "video/mp4", size = 1, date = 3, album = "Screen recordings", path = "DCIM/Screen recordings/"),
+            Media(4, "image/png", size = 1, date = 4, album = "Capturas de pantalla", path = "Pictures/Capturas de pantalla/"),
+            Media(5, "video/mp4", size = 1, date = 5, album = "ScreenRecorder", path = "DCIM/ScreenRecorder/"),
+            Media(6, "video/mp4", size = 1, date = 6, album = "Grabaciones de pantalla", path = "Movies/Grabaciones de pantalla/"),
+        )
+        assertEquals(listOf(1L), ids(Filter(sources = setOf(group(Preset.CAMERA))), l))
+        assertEquals(listOf(2L, 4L), ids(Filter(sources = setOf(group(Preset.SCREENSHOTS))), l))
+        assertEquals(listOf(3L, 5L, 6L), ids(Filter(sources = setOf(group(Preset.SCREEN_RECORDINGS))), l))
+    }
+
+    @Test
     fun fileKinds() {
         assertEquals(listOf(Kind.AUDIO, Kind.DOCS, Kind.DOCS, Kind.ARCHIVES, Kind.APKS), files.map { it.kind })
         assertEquals(listOf(11L, 12L), ids(Filter(files = true, kind = Kind.DOCS), files))
