@@ -641,7 +641,7 @@ private fun InfoOverlay(m: Media, title: String, modifier: Modifier) {
         Text(title, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
         val extra = if (m.durationMs > 0) " · " + DateUtils.formatElapsedTime(m.durationMs / 1000) else ""
         Text(
-            "${m.album} · ${DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(m.date))}$extra",
+            "${m.folder.ifBlank { m.album }} · ${DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(m.date))}$extra",
             color = Color.White.copy(alpha = 0.8f),
         )
     }
@@ -654,6 +654,7 @@ fun MediaCard(m: Media, active: Boolean, muted: Boolean, onToggleMute: () -> Uni
         Thumbnail(m, Modifier.fillMaxSize())
         if (m.isVideo && active) VideoPlayer(m.uri, muted)
         InfoOverlay(m, ctx.fmt(m.size), Modifier.align(Alignment.BottomStart))
+        if (active) OpenButtons(m, original = true, Modifier.align(Alignment.TopStart))
         if (m.isImage && active) {
             var zoom by remember(m.id) { mutableStateOf(false) }
             FilledTonalIconButton(onClick = { zoom = true }, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp).size(52.dp)) {
@@ -708,16 +709,7 @@ private fun FileCard(m: Media, active: Boolean, modifier: Modifier = Modifier) {
                 }
                 m.kind == Kind.AUDIO -> AudioButton(m.uri)
                 m.kind == Kind.APKS -> {}
-                else -> FilledTonalButton(onClick = {
-                    runCatching {
-                        ctx.startActivity(
-                            Intent(Intent.ACTION_VIEW).setDataAndType(
-                                m.file?.let { FileProvider.getUriForFile(ctx, "${ctx.packageName}.files", File(it)) } ?: m.uri,
-                                m.mime,
-                            ).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        )
-                    }.onFailure { Toast.makeText(ctx, "No hay una app para abrir este archivo", Toast.LENGTH_SHORT).show() }
-                }) {
+                else -> FilledTonalButton(onClick = { ctx.openOriginal(m) }) {
                     Icon(AppIcons.Open, null)
                     Spacer(Modifier.width(8.dp))
                     Text("Abrir")
@@ -725,6 +717,44 @@ private fun FileCard(m: Media, active: Boolean, modifier: Modifier = Modifier) {
             }
         }
         InfoOverlay(m, ctx.fmt(m.size), Modifier.align(Alignment.BottomStart))
+        if (active) OpenButtons(m, original = false, Modifier.align(Alignment.TopStart))
+    }
+}
+
+/** Carpeta relativa al almacenamiento interno, ej. "DCIM/Camera". */
+val Media.folder get() = file?.let { File(it).parent?.removePrefix(primaryRoot)?.trim('/') } ?: path.trimEnd('/')
+
+/** Abre el archivo en la app del sistema (galería, Fotos, lector...). Desde ahí se comparte, mueve o edita. */
+fun Context.openOriginal(m: Media) {
+    runCatching {
+        startActivity(
+            Intent(Intent.ACTION_VIEW).setDataAndType(
+                m.file?.let { FileProvider.getUriForFile(this, "$packageName.files", File(it)) } ?: m.uri,
+                m.mime,
+            ).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        )
+    }.onFailure { Toast.makeText(this, "No hay una app para abrir este archivo", Toast.LENGTH_SHORT).show() }
+}
+
+// ponytail: Android no tiene un intent estándar para abrir carpetas; esto lo entiende el explorador del sistema.
+// Si el teléfono no lo acepta, al menos se muestra la ruta.
+fun Context.openFolder(m: Media) {
+    runCatching {
+        val uri = DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", "primary:${m.folder}")
+        startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, DocumentsContract.Document.MIME_TYPE_DIR))
+    }.onFailure { Toast.makeText(this, "Está en: ${m.folder}", Toast.LENGTH_LONG).show() }
+}
+
+@Composable
+private fun OpenButtons(m: Media, original: Boolean, modifier: Modifier) {
+    val ctx = LocalContext.current
+    Row(modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (original) FilledTonalIconButton(onClick = { ctx.openOriginal(m) }, modifier = Modifier.size(52.dp)) {
+            Icon(AppIcons.Open, "Abrir original")
+        }
+        FilledTonalIconButton(onClick = { ctx.openFolder(m) }, modifier = Modifier.size(52.dp)) {
+            Icon(AppIcons.Folder, "Abrir carpeta")
+        }
     }
 }
 
