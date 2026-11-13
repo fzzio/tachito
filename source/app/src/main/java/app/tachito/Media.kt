@@ -71,7 +71,8 @@ enum class Order(val label: String) {
 
 enum class Preset(val label: String, val test: (Media) -> Boolean) {
     CAMERA("Galería (cámara)", { it.path.startsWith("DCIM/", true) }),
-    SCREENSHOTS("Capturas de pantalla", { it.path.contains("screenshot", true) }),
+    // Algunos teléfonos en español guardan en "Capturas de pantalla" en vez de "Screenshots"
+    SCREENSHOTS("Capturas de pantalla", { it.path.contains("screenshot", true) || it.path.contains("captura", true) }),
     WHATSAPP("WhatsApp", { it.path.contains("whatsapp", true) || it.owner.startsWith("com.whatsapp") }),
     // Solo copias locales: Google Fotos no permite tocar la nube.
     GOOGLE_PHOTOS("Google Fotos", { it.owner == "com.google.android.apps.photos" || it.path.contains("Google Photos", true) }),
