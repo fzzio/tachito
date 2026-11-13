@@ -333,7 +333,7 @@ fun SwipeScreen(items: List<Media>, resumeKey: String?, onExit: () -> Unit) {
             Text("${minOf(index + 1, items.size)} / ${items.size}", Modifier.weight(1f))
             when {
                 pending.isNotEmpty() -> Text("${pending.size} ${if (pending.size == 1) "marcada" else "marcadas"} · ${ctx.fmt(pending.sumOf { it.size })}", color = RED, fontWeight = FontWeight.Bold)
-                freed > 0 -> Text("Liberado: ${ctx.fmt(freed)}", color = GREEN, fontWeight = FontWeight.Bold)
+                freed > 0 -> Text("A la papelera: ${ctx.fmt(freed)}", color = GREEN, fontWeight = FontWeight.Bold)
             }
             Spacer(Modifier.width(12.dp))
         }
@@ -355,7 +355,7 @@ fun SwipeScreen(items: List<Media>, resumeKey: String?, onExit: () -> Unit) {
                             pending.isNotEmpty() ->
                                 "Marcaste ${pending.size} para borrar (${ctx.fmt(pending.sumOf { it.size })}). Todavía no se borró nada: " +
                                     "confírmalo con el botón rojo. Las que no marcaste se quedan."
-                            freed > 0 -> "Liberaste ${ctx.fmt(freed)}. Lo borrado queda $TRASH_DAYS días en la papelera por si te arrepientes."
+                            freed > 0 -> "Enviaste ${ctx.fmt(freed)} a la papelera. Sigue ocupando espacio hasta que la vacíes (o se borra sola a los $TRASH_DAYS días)."
                             else -> "No marcaste nada para borrar."
                         },
                         textAlign = TextAlign.Center,
@@ -462,12 +462,7 @@ fun rememberTrasher(onDone: (List<Media>) -> Unit): (List<Media>) -> Unit {
     val done by rememberUpdatedState(onDone)
     var waiting by remember { mutableStateOf(emptyList<Media>() to emptyList<Media>()) } // (ya movidos, esperando diálogo)
 
-    fun finish(moved: List<Media>) {
-        val bytes = moved.sumOf { it.size }
-        val prefs = ctx.prefs()
-        prefs.edit().putLong("freed", prefs.getLong("freed", 0) + bytes).apply()
-        done(moved)
-    }
+    fun finish(moved: List<Media>) = done(moved)
 
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { r ->
         val (moved, media) = waiting
@@ -498,6 +493,12 @@ fun rememberTrasher(onDone: (List<Media>) -> Unit): (List<Media>) -> Unit {
     }
 }
 
+/** Solo cuenta lo borrado para siempre: lo que está en la papelera sigue ocupando espacio. */
+fun Context.addFreed(bytes: Long) {
+    val prefs = prefs()
+    prefs.edit().putLong("freed", prefs.getLong("freed", 0) + bytes).apply()
+}
+
 /** Borrado en masa: todo viene marcado; se desmarca lo que se quiere conservar. Mantener presionado = ver grande. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -511,7 +512,7 @@ fun GridScreen(items: List<Media>, preselect: Boolean, onExit: () -> Unit) {
     val chosen = list.filter { it.id in selected }
 
     val toTrash = rememberTrasher { done ->
-        if (done.isNotEmpty()) Toast.makeText(ctx, "Liberaste ${ctx.fmt(done.sumOf { it.size })}", Toast.LENGTH_SHORT).show()
+        if (done.isNotEmpty()) Toast.makeText(ctx, "Enviaste ${ctx.fmt(done.sumOf { it.size })} a la papelera", Toast.LENGTH_SHORT).show()
         val ids = done.map { it.id }.toSet()
         list = list.filter { it.id !in ids }
         selected = selected - ids
@@ -641,7 +642,7 @@ private fun InfoOverlay(m: Media, title: String, modifier: Modifier) {
         Text(title, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
         val extra = if (m.durationMs > 0) " · " + DateUtils.formatElapsedTime(m.durationMs / 1000) else ""
         Text(
-            "${m.album} · ${DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(m.date))}$extra",
+            "${m.folder.ifBlank { m.album }} · ${DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(m.date))}$extra",
             color = Color.White.copy(alpha = 0.8f),
         )
     }
@@ -654,6 +655,7 @@ fun MediaCard(m: Media, active: Boolean, muted: Boolean, onToggleMute: () -> Uni
         Thumbnail(m, Modifier.fillMaxSize())
         if (m.isVideo && active) VideoPlayer(m.uri, muted)
         InfoOverlay(m, ctx.fmt(m.size), Modifier.align(Alignment.BottomStart))
+        if (active) OpenButtons(m, original = true, Modifier.align(Alignment.TopStart))
         if (m.isImage && active) {
             var zoom by remember(m.id) { mutableStateOf(false) }
             FilledTonalIconButton(onClick = { zoom = true }, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp).size(52.dp)) {
@@ -708,16 +710,7 @@ private fun FileCard(m: Media, active: Boolean, modifier: Modifier = Modifier) {
                 }
                 m.kind == Kind.AUDIO -> AudioButton(m.uri)
                 m.kind == Kind.APKS -> {}
-                else -> FilledTonalButton(onClick = {
-                    runCatching {
-                        ctx.startActivity(
-                            Intent(Intent.ACTION_VIEW).setDataAndType(
-                                m.file?.let { FileProvider.getUriForFile(ctx, "${ctx.packageName}.files", File(it)) } ?: m.uri,
-                                m.mime,
-                            ).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        )
-                    }.onFailure { Toast.makeText(ctx, "No hay una app para abrir este archivo", Toast.LENGTH_SHORT).show() }
-                }) {
+                else -> FilledTonalButton(onClick = { ctx.openOriginal(m) }) {
                     Icon(AppIcons.Open, null)
                     Spacer(Modifier.width(8.dp))
                     Text("Abrir")
@@ -725,6 +718,44 @@ private fun FileCard(m: Media, active: Boolean, modifier: Modifier = Modifier) {
             }
         }
         InfoOverlay(m, ctx.fmt(m.size), Modifier.align(Alignment.BottomStart))
+        if (active) OpenButtons(m, original = false, Modifier.align(Alignment.TopStart))
+    }
+}
+
+/** Carpeta relativa al almacenamiento interno, ej. "DCIM/Camera". */
+val Media.folder get() = file?.let { File(it).parent?.removePrefix(primaryRoot)?.trim('/') } ?: path.trimEnd('/')
+
+/** Abre el archivo en la app del sistema (galería, Fotos, lector...). Desde ahí se comparte, mueve o edita. */
+fun Context.openOriginal(m: Media) {
+    runCatching {
+        startActivity(
+            Intent(Intent.ACTION_VIEW).setDataAndType(
+                m.file?.let { FileProvider.getUriForFile(this, "$packageName.files", File(it)) } ?: m.uri,
+                m.mime,
+            ).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        )
+    }.onFailure { Toast.makeText(this, "No hay una app para abrir este archivo", Toast.LENGTH_SHORT).show() }
+}
+
+// ponytail: Android no tiene un intent estándar para abrir carpetas; esto lo entiende el explorador del sistema.
+// Si el teléfono no lo acepta, al menos se muestra la ruta.
+fun Context.openFolder(m: Media) {
+    runCatching {
+        val uri = DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", "primary:${m.folder}")
+        startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, DocumentsContract.Document.MIME_TYPE_DIR))
+    }.onFailure { Toast.makeText(this, "Está en: ${m.folder}", Toast.LENGTH_LONG).show() }
+}
+
+@Composable
+private fun OpenButtons(m: Media, original: Boolean, modifier: Modifier) {
+    val ctx = LocalContext.current
+    Row(modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (original) FilledTonalIconButton(onClick = { ctx.openOriginal(m) }, modifier = Modifier.size(52.dp)) {
+            Icon(AppIcons.Open, "Abrir original")
+        }
+        FilledTonalIconButton(onClick = { ctx.openFolder(m) }, modifier = Modifier.size(52.dp)) {
+            Icon(AppIcons.Folder, "Abrir carpeta")
+        }
     }
 }
 

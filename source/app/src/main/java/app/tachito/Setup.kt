@@ -79,6 +79,21 @@ fun SetupScreen(
             if (about) AboutDialog { about = false }
         }
 
+        // Lo de la papelera sigue ocupando espacio hasta vaciarla: sin esto parece que borrar no libera nada
+        if (trash.second > 0) Row(
+            Modifier
+                .padding(start = 20.dp, end = 20.dp, top = 12.dp)
+                .fillMaxWidth()
+                .clip(RADIUS)
+                .background(RED.copy(alpha = 0.12f))
+                .clickable(onClick = onOpenTrash)
+                .padding(start = 16.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("${ctx.fmt(trash.second)} en la papelera aún ocupan espacio", Modifier.weight(1f), fontSize = 14.sp)
+            TextButton(onClick = onOpenTrash) { Text("Vaciar", color = RED, fontWeight = FontWeight.SemiBold) }
+        }
+
         Segmented(
             listOf("Fotos y videos", "Archivos"),
             selected = if (filter.files) 1 else 0,

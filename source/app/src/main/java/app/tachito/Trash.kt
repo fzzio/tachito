@@ -88,7 +88,7 @@ fun volumeRoot(path: String, primary: String): String =
     if (path.startsWith("$primary/") || path == primary) primary
     else "/storage/" + path.removePrefix("/storage/").substringBefore('/')
 
-private val primaryRoot get() = Environment.getExternalStorageDirectory().path
+val primaryRoot get() = Environment.getExternalStorageDirectory().path
 
 fun binFor(path: String) = TrashBin(File(volumeRoot(path, primaryRoot), TRASH_DIR))
 
