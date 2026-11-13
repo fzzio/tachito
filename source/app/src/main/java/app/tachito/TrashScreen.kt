@@ -65,7 +65,10 @@ fun loadTrash(ctx: Context): List<TrashRow> {
     return (system + own).sortedByDescending { it.media.expires }
 }
 
-private fun daysLeft(expires: Long): Long = maxOf(0, (expires - System.currentTimeMillis()) / (24 * 60 * 60 * 1000L))
+private const val DAY = 24 * 60 * 60 * 1000L
+
+// Hacia arriba: lo recién enviado dice 30 días, no 29
+private fun daysLeft(expires: Long): Long = maxOf(0, (expires - System.currentTimeMillis() + DAY - 1) / DAY)
 
 @Composable
 fun TrashScreen(onBack: () -> Unit) {
@@ -144,7 +147,7 @@ fun TrashScreen(onBack: () -> Unit) {
                 val chosen = list.filter { it.key in selected }
                 Row(Modifier.padding(start = 20.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("${list.size} elementos · ${ctx.fmt(list.sumOf { it.media.size })}", fontWeight = FontWeight.SemiBold)
+                        Text("${list.size} ${if (list.size == 1) "elemento" else "elementos"} ·${ctx.fmt(list.sumOf { it.media.size })}", fontWeight = FontWeight.SemiBold)
                         Text("Se borran solos a los $TRASH_DAYS días.", color = muted, fontSize = 13.sp)
                     }
                     TextButton(onClick = { selected = if (chosen.size == list.size) emptySet() else list.map { it.key }.toSet() }) {

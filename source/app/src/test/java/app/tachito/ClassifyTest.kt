@@ -18,6 +18,14 @@ class ClassifyTest {
     }
 
     @Test
+    fun english() {
+        assertEquals(Category.GREETINGS, c("Good morning! Have a nice day"))
+        assertEquals(Category.RELIGION, c("God bless you and your family"))
+        assertEquals(Category.MARKETING, c("50% OFF today only, order now"))
+        assertEquals(Category.NEWS, c("BREAKING NEWS storm warning tonight"))
+    }
+
+    @Test
     fun noTextOrCamera() {
         assertEquals(Category.NONE, c(""))
         assertEquals(Category.NONE, c("ok jaja"))
@@ -45,5 +53,8 @@ class ClassifyTest {
         assertEquals(listOf(1L), ids(Content.RELIGION))
         assertEquals(listOf(1L, 2L), ids(Content.RELIGION, Content.MEMES))
         assertEquals(listOf(1L, 2L), ids(Content.RECEIVED)) // 4 aún no analizada: no entra
+        // Una captura propia no es "recibida"
+        val shot = Media(5L, "image/png", size = 1, date = 5, album = "", path = "Pictures/Capturas de pantalla/")
+        assertEquals(emptyList<Media>(), listOf(shot).select(Filter(contents = setOf(Content.RECEIVED)), mapOf(5L to Tag(false, Category.MEMES))))
     }
 }

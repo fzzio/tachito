@@ -65,6 +65,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -81,12 +82,22 @@ import java.util.Date
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-private val PERMISSIONS =
-    if (Build.VERSION.SDK_INT >= 33) arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO)
-    else arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+// Desde Android 14 hay que pedir también el acceso parcial ("Seleccionar fotos"); si no, se pierde al reabrir.
+private val PERMISSIONS = when {
+    Build.VERSION.SDK_INT >= 34 ->
+        arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
+    Build.VERSION.SDK_INT >= 33 -> arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO)
+    else -> arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+}
 
-private fun hasMediaPermission(ctx: Context) =
-    PERMISSIONS.any { ctx.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
+private fun Context.granted(p: String) = checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED
+
+private fun hasMediaPermission(ctx: Context) = PERMISSIONS.any(ctx::granted)
+
+/** Solo las fotos que la persona eligió (Android 14+). */
+private fun hasPartialAccess(ctx: Context) =
+    Build.VERSION.SDK_INT >= 34 && !ctx.granted(Manifest.permission.READ_MEDIA_IMAGES) &&
+        ctx.granted(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
 
 fun Context.fmt(bytes: Long) = Formatter.formatShortFileSize(this, bytes)
 
@@ -116,10 +127,12 @@ private fun OnLifecycle(onEvent: (Lifecycle.Event) -> Unit) {
 fun App() {
     val ctx = LocalContext.current
     var mediaGranted by remember { mutableStateOf(hasMediaPermission(ctx)) }
+    var partial by remember { mutableStateOf(hasPartialAccess(ctx)) }
     var filesGranted by remember { mutableStateOf(Environment.isExternalStorageManager()) }
     var asked by remember { mutableStateOf(false) }
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         mediaGranted = hasMediaPermission(ctx)
+        partial = hasPartialAccess(ctx)
         asked = true
     }
     // El acceso a todos los archivos se da en Ajustes: se revisa al volver a la app.
@@ -127,6 +140,7 @@ fun App() {
         if (it == Lifecycle.Event.ON_RESUME) {
             filesGranted = Environment.isExternalStorageManager()
             mediaGranted = hasMediaPermission(ctx)
+            partial = hasPartialAccess(ctx)
         }
     }
     if (!mediaGranted && !filesGranted) {
@@ -152,8 +166,8 @@ fun App() {
 
     // Clasifica por contenido las imágenes nuevas, en segundo plano mientras la app está abierta.
     // ponytail: una pasada por apertura; lo que llegue con la app abierta se analiza en la siguiente.
-    LaunchedEffect(mediaGranted) {
-        if (!mediaGranted) return@LaunchedEffect
+    LaunchedEffect(mediaGranted || filesGranted, partial) {
+        if (!mediaGranted && !filesGranted) return@LaunchedEffect
         val store = tagStore(ctx)
         tags = withContext(Dispatchers.IO) { store.load() }
         val todo = withContext(Dispatchers.IO) {
@@ -179,7 +193,7 @@ fun App() {
         if (filesGranted) withContext(Dispatchers.IO) { allBins(ctx).forEach { runCatching { it.purge() } } }
     }
     // Recarga al volver al menú: lo enviado a la papelera ya no aparece.
-    LaunchedEffect(onMenu, filter.files, filesGranted) {
+    LaunchedEffect(onMenu, filter.files, filesGranted, partial) {
         if (!onMenu) return@LaunchedEffect
         all = null
         all = if (needsFilesAccess) emptyList() else withContext(Dispatchers.IO) { queryMedia(ctx.contentResolver, filter.files) }
@@ -220,6 +234,8 @@ fun App() {
             },
             onClearFolder = { folderPath = null; folderItems = null },
             trash = trash,
+            partialAccess = partial,
+            onMoreAccess = { permLauncher.launch(PERMISSIONS) },
             onOpenTrash = { trashOpen = true },
             onStart = { visit(); deck = it },
             onGrid = { visit(); grid = it },
@@ -352,10 +368,12 @@ fun SwipeScreen(items: List<Media>, resumeKey: String?, onExit: () -> Unit) {
         Box(Modifier.weight(1f).fillMaxWidth().padding(12.dp).onSizeChanged { width = it.width }) {
             if (current == null) {
                 Column(Modifier.align(Alignment.Center).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("¡Revisaste todo!", style = MaterialTheme.typography.headlineSmall)
+                    // Lo saltado con la barra no tiene decisión
+                    val skipped = items.count { it.id !in marks }
+                    Text(if (skipped > 0) "Llegaste al final" else "¡Revisaste todo!", style = MaterialTheme.typography.headlineSmall)
                     Spacer(Modifier.height(12.dp))
                     Text(
-                        when {
+                        (if (skipped > 0) "Saltaste $skipped sin revisar. " else "") + when {
                             pending.isNotEmpty() ->
                                 "Marcaste ${pending.size} para borrar (${ctx.fmt(pending.sumOf { it.size })}). Todavía no se borró nada: " +
                                     "confírmalo con el botón rojo. Las que no marcaste se quedan."
@@ -371,7 +389,7 @@ fun SwipeScreen(items: List<Media>, resumeKey: String?, onExit: () -> Unit) {
             } else {
                 items.getOrNull(index + 1)?.let { next ->
                     key(next.id) {
-                        AnyCard(next, active = false, muted = true, onToggleMute = {}, Modifier.graphicsLayer { scaleX = 0.95f; scaleY = 0.95f })
+                        AnyCard(next, active = false, muted = true, onToggleMute = {}, Modifier.graphicsLayer { scaleX = 0.95f; scaleY = 0.95f }.clearAndSetSemantics {})
                     }
                 }
                 key(current.id) {

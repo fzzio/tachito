@@ -103,7 +103,11 @@ fun Media.matches(source: Source) = when (source) {
 }
 
 fun Media.matches(contents: Set<Content>, tags: Map<Long, Tag>) =
-    contents.isEmpty() || tags[id]?.let { t -> contents.any { it.test(t) } } == true
+    contents.isEmpty() || contents.any { matches(it, tags) }
+
+/** Las capturas propias no cuentan como recibidas aunque no salieron de la cámara. */
+fun Media.matches(c: Content, tags: Map<Long, Tag>) =
+    tags[id]?.let(c::test) == true && !(c == Content.RECEIVED && Preset.SCREENSHOTS.test(this))
 
 fun List<Media>.select(f: Filter, tags: Map<Long, Tag> = emptyMap()): List<Media> {
     val l = filter { it.matches(f.kind) && (f.sources.isEmpty() || f.sources.any(it::matches)) && it.matches(f.contents, tags) }
@@ -144,6 +148,8 @@ fun queryMedia(cr: ContentResolver, files: Boolean): List<Media> {
     val selection =
         if (files) "${FileColumns.MEDIA_TYPE} NOT IN ($visual) AND ${MediaColumns.MIME_TYPE} IS NOT NULL AND ${MediaColumns.SIZE} > 0"
         else "${FileColumns.MEDIA_TYPE} IN ($visual)"
-    return cr.query(MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL), MEDIA_PROJECTION, selection, null, null)
+    // Carpetas ocultas (ej. la papelera propia .tachito-papelera): borrar su índice impide restaurar
+    val notHidden = " AND COALESCE(${MediaColumns.RELATIVE_PATH}, '') NOT LIKE '.%' AND COALESCE(${MediaColumns.RELATIVE_PATH}, '') NOT LIKE '%/.%'"
+    return cr.query(MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL), MEDIA_PROJECTION, selection + notHidden, null, null)
         ?.use { it.toMediaList() } ?: emptyList()
 }
