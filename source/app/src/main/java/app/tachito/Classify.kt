@@ -112,11 +112,11 @@ private fun hasCameraExif(ctx: Context, m: Media): Boolean = runCatching {
     }
 }.getOrDefault(false)
 
-/** OCR en el teléfono (ML Kit vía Play Services). Llamar fuera del hilo principal. */
+/** OCR en el teléfono (ML Kit, con el modelo incluido en el APK). Llamar fuera del hilo principal. */
 class Classifier(private val ctx: Context) : AutoCloseable {
     private val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
 
-    /** null si el OCR falló (ej. Play Services aún bajando el modelo): no se guarda y se reintenta en otra apertura. */
+    /** null si el OCR falló (ej. imagen corrupta): no se guarda y se reintenta en otra apertura. */
     fun tag(m: Media): Tag? {
         if (hasCameraExif(ctx, m)) return Tag(true, Category.NONE)
         val bmp = loadBitmap(ctx, m, 1024) ?: return Tag(false, Category.NONE) // archivo ilegible: no reintentar

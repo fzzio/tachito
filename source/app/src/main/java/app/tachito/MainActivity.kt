@@ -333,7 +333,7 @@ fun SwipeScreen(items: List<Media>, resumeKey: String?, onExit: () -> Unit) {
             Text("${minOf(index + 1, items.size)} / ${items.size}", Modifier.weight(1f))
             when {
                 pending.isNotEmpty() -> Text("${pending.size} ${if (pending.size == 1) "marcada" else "marcadas"} · ${ctx.fmt(pending.sumOf { it.size })}", color = RED, fontWeight = FontWeight.Bold)
-                freed > 0 -> Text("Liberado: ${ctx.fmt(freed)}", color = GREEN, fontWeight = FontWeight.Bold)
+                freed > 0 -> Text("A la papelera: ${ctx.fmt(freed)}", color = GREEN, fontWeight = FontWeight.Bold)
             }
             Spacer(Modifier.width(12.dp))
         }
@@ -355,7 +355,7 @@ fun SwipeScreen(items: List<Media>, resumeKey: String?, onExit: () -> Unit) {
                             pending.isNotEmpty() ->
                                 "Marcaste ${pending.size} para borrar (${ctx.fmt(pending.sumOf { it.size })}). Todavía no se borró nada: " +
                                     "confírmalo con el botón rojo. Las que no marcaste se quedan."
-                            freed > 0 -> "Liberaste ${ctx.fmt(freed)}. Lo borrado queda $TRASH_DAYS días en la papelera por si te arrepientes."
+                            freed > 0 -> "Enviaste ${ctx.fmt(freed)} a la papelera. Sigue ocupando espacio hasta que la vacíes (o se borra sola a los $TRASH_DAYS días)."
                             else -> "No marcaste nada para borrar."
                         },
                         textAlign = TextAlign.Center,
@@ -462,12 +462,7 @@ fun rememberTrasher(onDone: (List<Media>) -> Unit): (List<Media>) -> Unit {
     val done by rememberUpdatedState(onDone)
     var waiting by remember { mutableStateOf(emptyList<Media>() to emptyList<Media>()) } // (ya movidos, esperando diálogo)
 
-    fun finish(moved: List<Media>) {
-        val bytes = moved.sumOf { it.size }
-        val prefs = ctx.prefs()
-        prefs.edit().putLong("freed", prefs.getLong("freed", 0) + bytes).apply()
-        done(moved)
-    }
+    fun finish(moved: List<Media>) = done(moved)
 
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { r ->
         val (moved, media) = waiting
@@ -498,6 +493,12 @@ fun rememberTrasher(onDone: (List<Media>) -> Unit): (List<Media>) -> Unit {
     }
 }
 
+/** Solo cuenta lo borrado para siempre: lo que está en la papelera sigue ocupando espacio. */
+fun Context.addFreed(bytes: Long) {
+    val prefs = prefs()
+    prefs.edit().putLong("freed", prefs.getLong("freed", 0) + bytes).apply()
+}
+
 /** Borrado en masa: todo viene marcado; se desmarca lo que se quiere conservar. Mantener presionado = ver grande. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -511,7 +512,7 @@ fun GridScreen(items: List<Media>, preselect: Boolean, onExit: () -> Unit) {
     val chosen = list.filter { it.id in selected }
 
     val toTrash = rememberTrasher { done ->
-        if (done.isNotEmpty()) Toast.makeText(ctx, "Liberaste ${ctx.fmt(done.sumOf { it.size })}", Toast.LENGTH_SHORT).show()
+        if (done.isNotEmpty()) Toast.makeText(ctx, "Enviaste ${ctx.fmt(done.sumOf { it.size })} a la papelera", Toast.LENGTH_SHORT).show()
         val ids = done.map { it.id }.toSet()
         list = list.filter { it.id !in ids }
         selected = selected - ids

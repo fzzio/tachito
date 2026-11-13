@@ -75,6 +75,7 @@ fun TrashScreen(onBack: () -> Unit) {
     var confirmDelete by remember { mutableStateOf<List<TrashRow>?>(null) }
     var selected by remember { mutableStateOf(emptySet<String>()) }
     var reload by remember { mutableIntStateOf(0) }
+    var deleting by remember { mutableLongStateOf(0L) } // bytes esperando el diálogo del sistema
 
     LaunchedEffect(reload) {
         rows = withContext(Dispatchers.IO) { loadTrash(ctx) }
@@ -84,7 +85,8 @@ fun TrashScreen(onBack: () -> Unit) {
 
     // Diálogos del sistema para fotos/videos/audio (restaurar o borrar definitivo)
     val systemLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
-        if (it.resultCode == Activity.RESULT_OK) reload++
+        if (it.resultCode == Activity.RESULT_OK) { ctx.addFreed(deleting); reload++ }
+        deleting = 0
     }
 
     /** Restaura varios a la vez: un solo diálogo del sistema para fotos/videos/audio. */
@@ -115,7 +117,9 @@ fun TrashScreen(onBack: () -> Unit) {
             own.groupBy { it.bin!! }.forEach { (bin, l) -> bin.delete(l.map { it.own!! }) }
             deleteNonMediaFromSystemTrash(ctx.contentResolver, others)
         }
+        ctx.addFreed(own.sumOf { it.media.size } + others.sumOf { it.size })
         if (media.isNotEmpty()) {
+            deleting = media.sumOf { it.size }
             // ponytail: una sola solicitud; con miles de elementos podría hacer falta dividir en tandas.
             systemLauncher.launch(IntentSenderRequest.Builder(MediaStore.createDeleteRequest(ctx.contentResolver, media.map { it.uri }).intentSender).build())
         } else reload++
