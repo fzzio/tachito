@@ -38,6 +38,8 @@ fun SetupScreen(
     filter: Filter,
     onFilter: (Filter) -> Unit,
     tags: Map<Long, Tag>,
+    /** Fuentes y categorías ya revisadas desde que se abrió la app (no se guarda). */
+    visited: Set<Any>,
     analyzing: Pair<Int, Int>,
     needsFilesAccess: Boolean,
     folder: FolderPick?,
@@ -116,11 +118,11 @@ fun SetupScreen(
             else -> LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 20.dp)) {
                 item { WhatSection(filter, onFilter) }
                 if (folder == null && !filter.files && filter.kind != Kind.VIDEOS) item {
-                    ContentSection(all.orEmpty(), filter, onFilter, tags, analyzing)
+                    ContentSection(all.orEmpty(), filter, onFilter, tags, analyzing, visited)
                 }
                 item {
                     if (folder != null) FolderSection(folder, onClearFolder)
-                    else SourcesSection(all.orEmpty(), filter, onFilter, onPickFolder)
+                    else SourcesSection(all.orEmpty(), filter, onFilter, tags, visited, onPickFolder)
                 }
             }
         }
@@ -211,7 +213,7 @@ private fun WhatSection(filter: Filter, onFilter: (Filter) -> Unit) {
 }
 
 @Composable
-private fun ContentSection(all: List<Media>, filter: Filter, onFilter: (Filter) -> Unit, tags: Map<Long, Tag>, analyzing: Pair<Int, Int>) {
+private fun ContentSection(all: List<Media>, filter: Filter, onFilter: (Filter) -> Unit, tags: Map<Long, Tag>, analyzing: Pair<Int, Int>, visited: Set<Any>) {
     val ctx = LocalContext.current
     // Conteos dentro de lo ya elegido en "De dónde" (ej. solo WhatsApp)
     val counts = remember(all, filter.sources, tags) {
@@ -239,7 +241,7 @@ private fun ContentSection(all: List<Media>, filter: Filter, onFilter: (Filter) 
         )
         counts.forEachIndexed { i, (c, l) ->
             if (i > 0) RowDivider()
-            CheckRow(c.label, "${l.size} · ${ctx.fmt(l.sumOf { it.size })}", c in filter.contents) {
+            CheckRow(c.label, "${l.size} · ${ctx.fmt(l.sumOf { it.size })}", c in filter.contents, c in visited) {
                 val on = c !in filter.contents
                 // Para decidir qué borrar en masa conviene ver primero lo más viejo
                 onFilter(filter.copy(contents = if (on) filter.contents + c else filter.contents - c, order = if (on) Order.OLDEST else filter.order))
@@ -255,8 +257,9 @@ private fun ContentSection(all: List<Media>, filter: Filter, onFilter: (Filter) 
 }
 
 @Composable
-private fun SourcesSection(all: List<Media>, filter: Filter, onFilter: (Filter) -> Unit, onPickFolder: () -> Unit) {
-    val byKind = remember(all, filter.kind) { all.filter { it.matches(filter.kind) } }
+private fun SourcesSection(all: List<Media>, filter: Filter, onFilter: (Filter) -> Unit, tags: Map<Long, Tag>, visited: Set<Any>, onPickFolder: () -> Unit) {
+    // Conteos dentro de lo ya elegido en "Por contenido", para que cuadren con el botón Empezar
+    val byKind = remember(all, filter.kind, filter.contents, tags) { all.filter { it.matches(filter.kind) && it.matches(filter.contents, tags) } }
     val presets = remember(byKind) { Preset.entries.map { p -> p to byKind.filter(p.test) }.filter { it.second.isNotEmpty() } }
     val albums = remember(byKind) {
         byKind.groupBy { it.album }.map { (name, l) -> Triple(name, l.size, l.sumOf { it.size }) }.sortedByDescending { it.third }
@@ -279,7 +282,7 @@ private fun SourcesSection(all: List<Media>, filter: Filter, onFilter: (Filter) 
         presets.forEach { (p, l) ->
             RowDivider()
             val s = Source.Group(p)
-            CheckRow(p.label, "${l.size} · ${LocalContext.current.fmt(l.sumOf { it.size })}", s in filter.sources) { onFilter(filter.toggle(s)) }
+            CheckRow(p.label, "${l.size} · ${LocalContext.current.fmt(l.sumOf { it.size })}", s in filter.sources, s in visited) { onFilter(filter.toggle(s)) }
         }
     }
     if (presets.any { it.first == Preset.GOOGLE_PHOTOS }) Text(
@@ -289,11 +292,11 @@ private fun SourcesSection(all: List<Media>, filter: Filter, onFilter: (Filter) 
         modifier = Modifier.padding(top = 6.dp, start = 4.dp),
     )
 
-    FoldersSection(albums, filter, onFilter, onPickFolder)
+    FoldersSection(albums, filter, onFilter, visited, onPickFolder)
 }
 
 @Composable
-private fun FoldersSection(albums: List<Triple<String, Int, Long>>, filter: Filter, onFilter: (Filter) -> Unit, onPickFolder: () -> Unit) {
+private fun FoldersSection(albums: List<Triple<String, Int, Long>>, filter: Filter, onFilter: (Filter) -> Unit, visited: Set<Any>, onPickFolder: () -> Unit) {
     val ctx = LocalContext.current
     var expanded by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
@@ -326,7 +329,7 @@ private fun FoldersSection(albums: List<Triple<String, Int, Long>>, filter: Filt
         }
         shown.forEach { (name, count, bytes) ->
             val s = Source.Album(name)
-            CheckRow(name, "$count · ${ctx.fmt(bytes)}", s in filter.sources) { onFilter(filter.toggle(s)) }
+            CheckRow(name, "$count · ${ctx.fmt(bytes)}", s in filter.sources, s in visited) { onFilter(filter.toggle(s)) }
             RowDivider()
         }
         if (query.isBlank() && albums.size > FOLDERS_PREVIEW) {
@@ -364,7 +367,7 @@ private fun FolderSection(folder: FolderPick, onClear: () -> Unit) {
 }
 
 @Composable
-private fun CheckRow(title: String, detail: String, checked: Boolean, onClick: () -> Unit) {
+private fun CheckRow(title: String, detail: String, checked: Boolean, visited: Boolean = false, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -382,7 +385,16 @@ private fun CheckRow(title: String, detail: String, checked: Boolean, onClick: (
             if (checked) Icon(Icons.Default.Check, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onPrimary)
         }
         Spacer(Modifier.width(12.dp))
-        Text(title, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+            Text(title, Modifier.weight(1f, fill = false), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (visited) Text(
+                "Revisado",
+                Modifier.padding(horizontal = 8.dp).background(GREEN.copy(alpha = 0.15f), RADIUS).padding(horizontal = 6.dp, vertical = 2.dp),
+                color = GREEN,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
         Text(detail, color = muted, fontSize = 13.sp)
     }
 }

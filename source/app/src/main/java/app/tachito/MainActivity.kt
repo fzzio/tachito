@@ -142,6 +142,9 @@ fun App() {
     var folderItems by remember { mutableStateOf<List<Media>?>(null) }
     var trash by remember { mutableStateOf(0 to 0L) }
     var grid by remember { mutableStateOf<List<Media>?>(null) }
+    // Solo en memoria: se pierde al cerrar la app, a propósito
+    var visited by remember { mutableStateOf(emptySet<Any>()) }
+    fun visit() { visited = visited + filter.sources + filter.contents }
     var tags by remember { mutableStateOf<Map<Long, Tag>>(emptyMap()) }
     var analyzing by remember { mutableStateOf(0 to 0) } // (hechas, total) de esta pasada
     val needsFilesAccess = filter.files && !filesGranted
@@ -204,6 +207,7 @@ fun App() {
             filter = filter,
             onFilter = { filter = it },
             tags = tags,
+            visited = visited,
             analyzing = analyzing,
             needsFilesAccess = needsFilesAccess,
             folder = folderPath?.let { FolderPick(it, folderItems) },
@@ -217,8 +221,8 @@ fun App() {
             onClearFolder = { folderPath = null; folderItems = null },
             trash = trash,
             onOpenTrash = { trashOpen = true },
-            onStart = { deck = it },
-            onGrid = { grid = it },
+            onStart = { visit(); deck = it },
+            onGrid = { visit(); grid = it },
         )
     }
 }
